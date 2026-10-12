@@ -1,0 +1,130 @@
+# 판별 품질 평가셋. expected_verdict: safe(안전) / caution(주의) / danger(위험)
+# 이단 용어와 겹치지만 정통적인 문장(note 에 '혼동 유도')을 일부러 섞어 오탐을 측정한다.
+
+# --- 위험: 신천지 ---
+- id: eval-scj-01
+  text: 성경의 비유를 깨닫지 못하면 죄 사함을 받을 수 없습니다. 씨는 말씀이고 밭은 사람의 마음이며 나무는 사람, 새는 영입니다. 이 짝을 알아야 천국에 들어갑니다.
+  expected_verdict: danger
+  expected_group: 신천지
+  topic: revelation
+
+- id: eval-scj-02
+  text: 예수님이 약속하신 보혜사는 오늘날 이 땅에 육체로 오신 약속의 목자입니다. 그분에게 가야만 계시의 말씀을 받을 수 있습니다.
+  expected_verdict: danger
+  expected_group: 신천지
+  topic: christology
+
+- id: eval-scj-03
+  text: 계시록은 이미 이 땅에서 실상으로 이루어졌고, 그 현장을 직접 보고 들은 증인은 오직 한 사람뿐입니다.
+  expected_verdict: danger
+  expected_group: 신천지
+  topic: revelation
+
+- id: eval-scj-04
+  text: 오늘날 기성교회는 배도하여 멸망받은 바벨론입니다. 거기서 나와 구원의 처소로 옮겨야 삽니다.
+  expected_verdict: danger
+  expected_group: 신천지
+  topic: ecclesiology
+
+- id: eval-scj-05
+  text: 십사만 사천이 인 맞아 완성되면 순교자의 영이 우리 육체에 임해서 죽지 않고 영원히 살게 됩니다.
+  expected_verdict: danger
+  expected_group: 신천지
+  topic: eschatology
+
+# --- 위험: 구원파 ---
+- id: eval-gwp-01
+  text: 구원받은 사람은 더 이상 회개할 필요가 없습니다. 아직도 죄를 고백하고 있다면 구원받지 못했다는 증거입니다.
+  expected_verdict: danger
+  expected_group: 구원파
+  topic: soteriology
+
+- id: eval-gwp-02
+  text: 당신은 몇 년 몇 월 며칠에 구원받았습니까? 그날을 모른다면 아직 거듭나지 못한 것입니다.
+  expected_verdict: danger
+  expected_group: 구원파
+  topic: soteriology
+
+- id: eval-gwp-03
+  text: 교회 다니며 예배드리고 기도하는 것은 종교생활일 뿐입니다. 죄 사함의 비밀을 깨닫지 못하면 아무 소용이 없습니다.
+  expected_verdict: danger
+  expected_group: 구원파
+  topic: ecclesiology
+
+# --- 주의: 단독으로는 단정하기 어렵지만 이단 교리의 문맥과 겹치는 문장 ---
+- id: eval-caution-01
+  text: 보석은 말씀 가진 사람을 뜻합니다.
+  expected_verdict: caution
+  expected_group: 신천지
+  topic: revelation
+  note: 비유풀이 공식의 일부. 한 문장만으로는 단정 불가.
+
+- id: eval-caution-02
+  text: 이 땅 육의 세계의 천국이 되는 거겠죠.
+  expected_verdict: caution
+  expected_group: 신천지
+  topic: eschatology
+  note: docs/PROJECT.md 의 STT 예시 문장.
+
+- id: eval-caution-03
+  text: 이 시대에는 이 시대에 맞는 새 말씀을 받아야 합니다. 예전 말씀으로는 구원받을 수 없습니다.
+  expected_verdict: caution
+  topic: revelation
+
+- id: eval-caution-04
+  text: 우리 목사님의 말씀만이 참된 해석입니다. 다른 곳의 설교는 들을 필요가 없습니다.
+  expected_verdict: caution
+  topic: ecclesiology
+  note: 특정 단체 교리는 아니지만 해석 독점 주장.
+
+# --- 안전: 정통 교리 ---
+- id: eval-safe-01
+  text: 우리는 행위가 아니라 오직 은혜로, 예수 그리스도를 믿음으로 구원받습니다.
+  expected_verdict: safe
+  topic: soteriology
+
+- id: eval-safe-02
+  text: 성부, 성자, 성령 하나님은 본체가 하나이신 삼위일체 하나님이십니다.
+  expected_verdict: safe
+  topic: trinity
+
+- id: eval-safe-03
+  text: 구원받은 성도도 날마다 죄를 고백하고 회개하며 거룩함을 향해 나아가야 합니다.
+  expected_verdict: safe
+  topic: soteriology
+
+- id: eval-safe-04
+  text: 그날과 그때는 아무도 모르니 우리는 늘 깨어 준비해야 합니다.
+  expected_verdict: safe
+  topic: eschatology
+
+# --- 안전: 이단 용어와 겹치는 정통 문장 (혼동 유도) ---
+- id: eval-safe-05
+  text: 예수님은 씨 뿌리는 비유에서 말씀을 듣는 네 가지 마음 밭을 말씀하셨습니다. 우리 마음이 좋은 땅이 되기를 바랍니다.
+  expected_verdict: safe
+  topic: revelation
+  note: 혼동 유도 - 비유, 씨, 밭.
+
+- id: eval-safe-06
+  text: 예수님이 약속하신 보혜사 성령께서 우리 안에 거하시며 진리로 인도하십니다.
+  expected_verdict: safe
+  topic: trinity
+  note: 혼동 유도 - 보혜사.
+
+- id: eval-safe-07
+  text: 요한계시록은 박해받는 교회에 주신 위로의 말씀이며, 그리스도의 최후 승리를 선포합니다.
+  expected_verdict: safe
+  topic: eschatology
+  note: 혼동 유도 - 계시록.
+
+- id: eval-safe-08
+  text: 계시록 7장의 십사만 사천은 하나님의 백성 전체를 상징하는 수로 이해되어 왔습니다.
+  expected_verdict: safe
+  topic: eschatology
+  note: 혼동 유도 - 십사만 사천.
+
+- id: eval-safe-09
+  text: 한국 교회가 세속화되었다는 지적을 겸허히 듣고 우리부터 회개해야 합니다.
+  expected_verdict: safe
+  topic: ecclesiology
+  note: 혼동 유도 - 교회 비판이지만 교회 전체의 배도 주장은 아님.
