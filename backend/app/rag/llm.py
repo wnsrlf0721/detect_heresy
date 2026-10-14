@@ -1,13 +1,40 @@
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from typing import Protocol
 
 import anthropic
 
+from app import prompts
 from app.errors import AnalysisError
-from app.schemas.llm import LLMAnalysis
+from app.schemas.llm import FrameTexts, LLMAnalysis
 
 
 class Analyzer(Protocol):
     def analyze(self, system: str, user: str) -> LLMAnalysis: ...
+
+
+@contextmanager
+def _api_errors():
+    """SDK 예외를 화면에 그대로 보여 줄 수 있는 AnalysisError 로 바꾼다."""
+    try:
+        yield
+    except anthropic.AuthenticationError as e:
+        raise AnalysisError("Anthropic API 키가 올바르지 않습니다.") from e
+    except anthropic.RateLimitError as e:
+        raise AnalysisError("LLM 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.") from e
+    except anthropic.APIStatusError as e:
+        raise AnalysisError(f"LLM 요청 실패 ({e.status_code}): {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        raise AnalysisError("LLM 서버에 연결하지 못했습니다.") from e
+
+
+def _parsed(response):
+    if response.stop_reason == "refusal":
+        raise AnalysisError("LLM이 이 내용의 분석을 거절했습니다.")
+    if response.stop_reason == "max_tokens" or response.parsed_output is None:
+        raise AnalysisError("LLM 응답이 완성되지 않았습니다.")
+    return response.parsed_output
 
 
 class ClaudeAnalyzer:
@@ -17,7 +44,7 @@ class ClaudeAnalyzer:
         self._effort = effort
 
     def analyze(self, system: str, user: str) -> LLMAnalysis:
-        try:
+        with _api_errors():
             # output_format 으로 넘긴 스키마에 맞춰 응답이 생성되고, SDK가 Pydantic 으로 다시 검증한다.
             response = self._client.beta.messages.parse(
                 model=self._model,
@@ -30,17 +57,49 @@ class ClaudeAnalyzer:
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
             )
-        except anthropic.AuthenticationError as e:
-            raise AnalysisError("Anthropic API 키가 올바르지 않습니다.") from e
-        except anthropic.RateLimitError as e:
-            raise AnalysisError("LLM 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.") from e
-        except anthropic.APIStatusError as e:
-            raise AnalysisError(f"LLM 요청 실패 ({e.status_code}): {e.message}") from e
-        except anthropic.APIConnectionError as e:
-            raise AnalysisError("LLM 서버에 연결하지 못했습니다.") from e
+        return _parsed(response)
 
-        if response.stop_reason == "refusal":
-            raise AnalysisError("LLM이 이 내용의 분석을 거절했습니다.")
-        if response.stop_reason == "max_tokens" or response.parsed_output is None:
-            raise AnalysisError("LLM 응답이 완성되지 않았습니다.")
-        return response.parsed_output
+
+class ClaudeVision:
+    """영상 프레임의 글자를 읽는다(OCR). 판단이 필요 없는 단순 작업이라 판별과 다른 가벼운 모델을 쓴다."""
+
+    FRAMES_PER_CALL = 10
+    MAX_PARALLEL_CALLS = 4
+
+    def __init__(self, api_key: str | None, model: str):
+        self._client = anthropic.Anthropic(api_key=api_key)
+        self._model = model
+
+    def _read_batch(self, images: list[bytes]) -> list[str]:
+        content = []
+        for index, image in enumerate(images):
+            content.append({"type": "text", "text": f"프레임 {index}"})
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64.standard_b64encode(image).decode(),
+                    },
+                }
+            )
+        with _api_errors():
+            response = self._client.beta.messages.parse(
+                model=self._model,
+                max_tokens=16000,
+                system=prompts.ocr_system_prompt(),
+                messages=[{"role": "user", "content": content}],
+                output_config={"effort": "low"},
+                output_format=FrameTexts,
+            )
+        texts = [""] * len(images)
+        for frame in _parsed(response).frames:
+            if 0 <= frame.index < len(images):
+                texts[frame.index] = frame.text
+        return texts
+
+    def read_frames(self, images: list[bytes]) -> list[str]:
+        batches = [images[i : i + self.FRAMES_PER_CALL] for i in range(0, len(images), self.FRAMES_PER_CALL)]
+        with ThreadPoolExecutor(max_workers=self.MAX_PARALLEL_CALLS) as pool:
+            return [text for batch in pool.map(self._read_batch, batches) for text in batch]

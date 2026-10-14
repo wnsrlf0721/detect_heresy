@@ -7,11 +7,20 @@ dependencies = [
     "anthropic>=1.13.0",
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
+    "numpy>=2.5.4",
+    "opencv-python-headless>=5.0.0.93",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.7",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0",
     "uvicorn[standard]>=0.54.0",
+    "yt-dlp[default]>=2026.8.19",
+]
+
+[project.optional-dependencies]
+local = [
+    "easyocr>=1.7.2",
+    "faster-whisper>=1.2.1",
 ]
 
 [dependency-groups]

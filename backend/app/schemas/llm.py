@@ -24,3 +24,12 @@ class LLMFinding(BaseModel):
 class LLMAnalysis(BaseModel):
     summary: str
     findings: list[LLMFinding]
+
+
+class FrameText(BaseModel):
+    index: int  # 프롬프트에 넣은 프레임 번호
+    text: str  # 화면에 보이는 글자. 없으면 빈 문자열
+
+
+class FrameTexts(BaseModel):
+    frames: list[FrameText]

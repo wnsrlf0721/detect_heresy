@@ -18,3 +18,14 @@ CREATE TABLE IF NOT EXISTS analyses (
     error      text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 영상 → 텍스트 추출 작업. 결과는 API 스키마 그대로 jsonb 로 보관한다.
+CREATE TABLE IF NOT EXISTS transcripts (
+    id         uuid PRIMARY KEY,
+    status     text NOT NULL,
+    url        text NOT NULL,
+    progress   text,
+    result     jsonb,
+    error      text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);

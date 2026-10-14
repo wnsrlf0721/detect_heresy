@@ -13,6 +13,10 @@ def system_prompt() -> str:
     return (_DIR / "analyze_system.md").read_text(encoding="utf-8")
 
 
+def ocr_system_prompt() -> str:
+    return (_DIR / "ocr_system.md").read_text(encoding="utf-8")
+
+
 def _reference_block(chunk: Chunk) -> str:
     if chunk.kind == "orthodox":
         body = {"text": chunk.text, "scripture": chunk.metadata.get("scripture", [])}
