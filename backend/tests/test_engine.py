@@ -82,3 +82,16 @@ def test_many_segments_are_split_into_batches(embedder, store):
     # 배치마다 index 가 0부터 다시 시작하므로 각 배치의 첫 구간이 적발된다.
     assert [f.quote for f in result.findings] == ["발언", "발언"]
     assert 'index="0"' in analyzer.calls[1][1]
+
+
+def test_all_segments_are_embedded_in_one_request(embedder, store):
+    calls = []
+
+    class CountingEmbedder:
+        def embed(self, texts, input_type):
+            calls.append(len(texts))
+            return embedder.embed(texts, input_type)
+
+    segments = [Segment(text=f"발언 {i}") for i in range(SEGMENTS_PER_CALL * 2 + 1)]
+    run(CountingEmbedder(), store, segments, [])
+    assert calls == [len(segments)]
