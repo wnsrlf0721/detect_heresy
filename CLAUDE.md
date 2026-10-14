@@ -4,8 +4,8 @@
 상세 기획은 docs/PROJECT.md 참고.
 
 ## 폴더 구조
-- backend/ : FastAPI. AI는 별도 폴더가 아니라 backend/app/rag, backend/app/prompts 모듈이다.
-- frontend/ : Next.js (아직 없음)
+- backend/ : FastAPI. AI는 별도 폴더가 아니라 backend/app/rag, backend/app/prompts 모듈이다. 영상 → 텍스트 추출은 backend/app/media 다.
+- frontend/ : Next.js. 화면 하나(app/page.tsx)에서 추출과 판별 API를 차례로 부른다. API 타입은 frontend/lib/api.ts 에 있고 백엔드 스키마와 손으로 맞춘다.
 - data/ : 기준 데이터 원문. orthodox/(정통 교리), heresy/(이단 사례), eval/(평가셋) YAML
 - 스키마는 backend/app/schemas/ 의 Pydantic 모델이 기준이다.
 
@@ -13,11 +13,13 @@
 - LLM: Claude (anthropic SDK, 기본 모델 claude-opus-5-5). 호출부는 backend/app/rag/llm.py 한 곳이다.
 - 임베딩: Voyage API (voyage-4, 1024차원). backend/app/rag/embedder.py
 - DB: PostgreSQL + pgvector 하나로 벡터 검색과 분석 결과 저장을 모두 처리한다. ORM 없이 psycopg 로 직접 쿼리한다.
-- 외부 의존(임베딩, 벡터 저장소, LLM, 저장소)은 Protocol 로 추상화돼 있고, 테스트는 가짜 구현으로 API 키와 DB 없이 돈다.
+- AI 작업은 모두 API로 한다. 영상 추출에서 음성은 OpenAI Whisper API(whisper-1, backend/app/media/stt.py), 화면 글자는 Claude 비전(claude-haiku-5-5, 호출부는 llm.py 의 ClaudeVision, 프롬프트는 prompts/ocr_system.md)이다. 다운로드와 자막은 yt-dlp, 프레임 추출은 OpenCV로 하며 ffmpeg 는 쓰지 않는다.
+- 로컬 실행(faster-whisper, EasyOCR)은 GPU를 붙일 때를 위해 남겨 둔 선택 사항이다. `uv sync --extra local` 로 설치하고 STT_BACKEND / OCR_BACKEND 를 local 로 바꾼다. CPU로는 너무 느려서 기본으로 쓰지 않는다.
+- 외부 의존(임베딩, 벡터 저장소, LLM, 저장소, 영상 다운로드, STT, OCR)은 Protocol 로 추상화돼 있고, 테스트는 가짜 구현으로 API 키와 DB 없이 돈다.
 
 ## API
 - POST /analyses, GET /analyses/{id} : 텍스트 구간(segments) 판별. 구현됨.
-- POST /transcripts, GET /transcripts/{id} : 영상 URL → 텍스트 추출. 영상 단계에서 구현한다.
+- POST /transcripts, GET /transcripts/{id} : 유튜브 URL → 자막(caption)·음성(stt)·화면 글자(ocr) 구간. 구현됨. POST 는 pending 으로 바로 응답하고 FastAPI BackgroundTasks 로 처리하며, 결과의 segments 는 그대로 POST /analyses 에 넘길 수 있다. Celery + Redis 는 아직 쓰지 않는다.
 - 구간의 source(user/stt/ocr/caption)와 time 은 요청부터 결과의 적발 문장까지 그대로 유지한다.
 - LLM에게는 판단만 맡긴다. 시간, 출처, 근거 문서, 종합 점수와 등급은 코드(backend/app/rag/engine.py)가 채운다.
 - 등급 기준(30 이상 주의, 70 이상 위험)은 engine.py 와 prompts/analyze_system.md 양쪽에 있으니 함께 바꾼다.
@@ -29,6 +31,7 @@
 - 테스트: uv run pytest (test_pg.py 는 DB가 떠 있을 때만 실행되고 아니면 건너뛴다)
 - 데이터 검증: uv run python -m scripts.validate_data
 - 평가: uv run python -m scripts.evaluate (문장마다 LLM을 호출하므로 비용이 든다)
+- 프론트 실행: npm run dev (frontend/ 에서, http://localhost:3000)
 
 ## 기준 데이터 규칙
 - 레코드 하나(조항·사례)가 청크 하나다.
@@ -36,7 +39,7 @@
 - 사람이 원출처와 대조하기 전까지 verified: false 로 둔다. AI가 임의로 true 로 바꾸지 않는다.
 
 ## 규칙
-- 현재 단계는 MVP: 텍스트 입력 → RAG 판별까지. 영상 파이프라인은 아직 만들지 않는다.
+- 현재 단계: 텍스트 판별, 유튜브 영상 추출, 결과 화면까지 한 번씩 연결된 상태다. 워커 큐, 1차 키워드 필터링, 이미지 업로드 OCR, 피드백 기능은 아직 없다.
 - LLM 응답은 반드시 JSON 스키마로 검증한다.
 - 프롬프트는 app/prompts/ 아래 별도 파일로 분리한다.
 - API 키는 .env로만 관리하고 커밋하지 않는다.
