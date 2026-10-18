@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     llm_model: str = "claude-opus-5-5"
     llm_effort: str = "high"
 
+    # 긴 영상에서 의심 구간을 먼저 골라내는 1차 선별. 판단이 가벼운 작업이라 저렴한 모델을 쓴다.
+    filter_model: str = "claude-haiku-5-5"
+
     voyage_api_key: str | None = None
     embedding_model: str = "voyage-4"  # 1024차원. 바꾸면 db/schema.sql 의 vector 차원도 맞춘다.
 

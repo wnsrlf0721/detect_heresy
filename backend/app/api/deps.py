@@ -13,7 +13,7 @@ from app.media.pipeline import TranscriptPipeline
 from app.media.stt import OpenAITranscriber, WhisperTranscriber
 from app.rag.embedder import VoyageEmbedder
 from app.rag.engine import AnalysisEngine
-from app.rag.llm import ClaudeAnalyzer, ClaudeVision
+from app.rag.llm import ClaudeAnalyzer, ClaudeScreener, ClaudeVision
 from app.rag.store import PgVectorStore
 
 
@@ -24,6 +24,7 @@ def get_engine() -> AnalysisEngine:
         embedder=VoyageEmbedder(settings.voyage_api_key, settings.embedding_model),
         store=PgVectorStore(settings.database_url),
         analyzer=ClaudeAnalyzer(settings.anthropic_api_key, settings.llm_model, settings.llm_effort),
+        screener=ClaudeScreener(settings.anthropic_api_key, settings.filter_model),
     )
 
 

@@ -33,3 +33,9 @@ class FrameText(BaseModel):
 
 class FrameTexts(BaseModel):
     frames: list[FrameText]
+
+
+class SegmentSelection(BaseModel):
+    """1차 선별 결과. 정밀 분석이 필요한 구간 번호."""
+
+    indices: list[int]
