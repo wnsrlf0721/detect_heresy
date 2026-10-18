@@ -29,3 +29,21 @@ CREATE TABLE IF NOT EXISTS transcripts (
     error      text,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 영상 분석 작업(추출 → 판별 → 대주제). 같은 영상·출처·판별 버전이면 저장된 결과를 다시 쓴다.
+CREATE TABLE IF NOT EXISTS video_analyses (
+    id              uuid PRIMARY KEY,
+    video_id        text NOT NULL,      -- 유튜브 영상 ID. 주소 형태가 달라도 같은 영상을 묶는다.
+    url             text NOT NULL,
+    sources         text NOT NULL,      -- 판별에 쓴 출처. 정렬해 쉼표로 이은 값 (예: caption,ocr,stt)
+    version         text NOT NULL,      -- app/rag/version.py 의 판별 버전
+    status          text NOT NULL,
+    progress        text,
+    transcript      jsonb,
+    result          jsonb,
+    topic           jsonb,
+    topic_embedding vector(1024),       -- 대주제 임베딩. 비슷한 주제의 영상을 찾는 데 쓴다.
+    error           text,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS video_analyses_lookup ON video_analyses (video_id, sources, version, created_at DESC);

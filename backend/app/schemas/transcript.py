@@ -9,6 +9,13 @@ from app.schemas.analysis import JobStatus, Segment
 ALLOWED_HOSTS = {"youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com"}
 
 
+def check_youtube_url(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
+        raise ValueError("유튜브 영상 주소만 지원합니다.")
+    return value
+
+
 class TranscriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -17,10 +24,7 @@ class TranscriptRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def _youtube_only(cls, value: str) -> str:
-        parsed = urlparse(value)
-        if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
-            raise ValueError("유튜브 영상 주소만 지원합니다.")
-        return value
+        return check_youtube_url(value)
 
 
 class TranscriptResult(BaseModel):

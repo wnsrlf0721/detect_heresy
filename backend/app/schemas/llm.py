@@ -39,3 +39,9 @@ class SegmentSelection(BaseModel):
     """1차 선별 결과. 정밀 분석이 필요한 구간 번호."""
 
     indices: list[int]
+
+
+class LLMTopic(BaseModel):
+    title: str  # 영상의 대주제 한 줄
+    summary: str  # 2~3문장 요약
+    keywords: list[str]

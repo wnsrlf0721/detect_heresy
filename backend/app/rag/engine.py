@@ -13,6 +13,9 @@ from app.schemas.analysis import AnalysisResult, Finding, Reference, Segment
 from app.schemas.llm import LLMFinding
 from app.schemas.reference import Chunk, Verdict
 
+# 판별 결과가 달라지는 코드 변경을 하면 올린다. 저장된 영상 분석을 다시 쓰지 않게 된다(app/rag/version.py).
+ENGINE_REVISION = 2
+
 # app/prompts/analyze_system.md 의 점수 기준과 같은 값이어야 한다.
 CAUTION_MIN = 30
 DANGER_MIN = 70

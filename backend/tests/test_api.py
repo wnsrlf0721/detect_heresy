@@ -29,8 +29,13 @@ def test_create_then_get_analysis(make_client):
     client = make_client(LLMAnalysis(summary="요약", findings=[finding]))
 
     created = client.post("/analyses", json={"segments": [{"time": "02:15", "text": TEXT, "source": "stt"}]})
-    assert created.status_code == 201
-    body = created.json()
+    assert created.status_code == 202
+    assert created.json()["status"] == "pending"
+
+    # TestClient 는 응답을 돌려주기 전에 백그라운드 작업을 끝낸다.
+    fetched = client.get(f"/analyses/{created.json()['id']}")
+    assert fetched.status_code == 200
+    body = fetched.json()
     assert body["status"] == "done"
     assert body["result"]["verdict"] == "danger"
     assert body["result"]["findings"][0] | {"references": None} == {
@@ -48,18 +53,22 @@ def test_create_then_get_analysis(make_client):
     }
     assert body["result"]["findings"][0]["references"][0]["id"] == "scj-promised-pastor"
 
-    fetched = client.get(f"/analyses/{body['id']}")
-    assert fetched.status_code == 200
-    assert fetched.json() == body
-
 
 def test_engine_failure_is_reported_as_failed_job(make_client):
     client = make_client(AnalysisError("LLM 서버에 연결하지 못했습니다."))
-    body = client.post("/analyses", json={"segments": [{"text": TEXT}]}).json()
+    created = client.post("/analyses", json={"segments": [{"text": TEXT}]}).json()
+    body = client.get(f"/analyses/{created['id']}").json()
     assert body["status"] == "failed"
     assert body["result"] is None
     assert body["error"] == "LLM 서버에 연결하지 못했습니다."
-    assert client.get(f"/analyses/{body['id']}").json()["status"] == "failed"
+
+
+def test_unexpected_error_does_not_leave_job_running(make_client):
+    client = make_client(RuntimeError("예상 못 한 오류"))
+    created = client.post("/analyses", json={"segments": [{"text": TEXT}]}).json()
+    body = client.get(f"/analyses/{created['id']}").json()
+    assert body["status"] == "failed"
+    assert "예상 못 한 오류" in body["error"]
 
 
 def test_unknown_analysis_is_404(make_client):

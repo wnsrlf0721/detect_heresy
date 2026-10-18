@@ -3,6 +3,7 @@
 import {
   AnalysisResult,
   Finding,
+  RelatedVideo,
   Segment,
   Source,
   SOURCE_LABEL,
@@ -10,6 +11,7 @@ import {
   Verdict,
   VERDICT_LABEL,
   verdictOf,
+  VideoTopic,
 } from "@/lib/api";
 
 const TONE: Record<Verdict, { text: string; bg: string; border: string; stroke: string; dot: string }> = {
@@ -252,6 +254,62 @@ export function TranscriptPanel({
           );
         })}
       </div>
+    </section>
+  );
+}
+
+/** 영상 대주제. 비슷한 주제의 이전 분석을 찾는 기준이다. */
+export function TopicPanel({ topic }: { topic: VideoTopic }) {
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6">
+      <h2 className="text-sm font-semibold text-zinc-500">영상 대주제</h2>
+      <p className="mt-2 text-lg font-semibold">{topic.title}</p>
+      <p className="mt-2 leading-7 text-zinc-700">{topic.summary}</p>
+      <ul className="mt-3 flex flex-wrap gap-2 text-sm">
+        {topic.keywords.map((keyword) => (
+          <li key={keyword} className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-zinc-600">
+            {keyword}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** 대주제가 비슷한 이전 영상 분석. 누르면 그 분석을 연다. */
+export function RelatedList({ related, onOpen }: { related: RelatedVideo[]; onOpen: (id: string) => void }) {
+  return (
+    <section className="rounded-2xl border border-zinc-200 bg-white p-6">
+      <h2 className="text-sm font-semibold text-zinc-500">비슷한 주제의 이전 분석</h2>
+      {related.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">아직 주제가 비슷한 영상을 분석한 적이 없습니다.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-zinc-100">
+          {related.map((video) => {
+            const tone = TONE[video.verdict];
+            return (
+              <li key={video.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(video.id)}
+                  className="flex w-full flex-col gap-1 rounded-lg px-2 py-3 text-left hover:bg-zinc-50 sm:flex-row sm:items-center sm:gap-4"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{video.title || video.url}</span>
+                    <span className="block truncate text-sm text-zinc-500">{video.topic}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2 text-sm">
+                    <span className={`rounded-full border px-2.5 py-0.5 font-semibold ${tone.text} ${tone.bg} ${tone.border}`}>
+                      {VERDICT_LABEL[video.verdict]} {video.score}%
+                    </span>
+                    <span className="tabular-nums text-zinc-400">주제 유사도 {Math.round(video.similarity * 100)}%</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

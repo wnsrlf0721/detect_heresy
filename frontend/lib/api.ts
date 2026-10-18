@@ -62,6 +62,40 @@ export interface TranscriptResponse {
   error: string | null;
 }
 
+export type VideoSource = "caption" | "stt" | "ocr";
+
+export interface VideoTopic {
+  title: string;
+  summary: string;
+  keywords: string[];
+}
+
+export interface RelatedVideo {
+  id: string;
+  url: string;
+  title: string;
+  topic: string;
+  verdict: Verdict;
+  score: number;
+  similarity: number;
+  created_at: string;
+}
+
+export interface VideoResponse {
+  id: string;
+  status: JobStatus;
+  url: string;
+  sources: VideoSource[];
+  created_at: string;
+  progress: string | null;
+  cached: boolean;
+  transcript: TranscriptResult | null;
+  result: AnalysisResult | null;
+  topic: VideoTopic | null;
+  related: RelatedVideo[];
+  error: string | null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -91,6 +125,23 @@ export function getTranscript(id: string): Promise<TranscriptResponse> {
 
 export function createAnalysis(segments: Segment[]): Promise<AnalysisResponse> {
   return request("/analyses", { method: "POST", body: JSON.stringify({ segments }) });
+}
+
+export function getAnalysis(id: string): Promise<AnalysisResponse> {
+  return request(`/analyses/${id}`);
+}
+
+/** 영상 분석. 같은 영상·출처의 저장된 분석이 있으면 done 으로 바로 돌아온다. force 면 처음부터 다시 한다. */
+export function createVideo(url: string, sources: VideoSource[], force = false): Promise<VideoResponse> {
+  return request("/videos", { method: "POST", body: JSON.stringify({ url, sources, force }) });
+}
+
+export function getVideo(id: string): Promise<VideoResponse> {
+  return request(`/videos/${id}`);
+}
+
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** "02:15" 또는 "1:02:15" 를 초로 바꾼다. */

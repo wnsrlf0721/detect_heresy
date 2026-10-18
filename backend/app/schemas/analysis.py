@@ -72,8 +72,7 @@ class AnalysisResult(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
-    """작업 형태의 응답. MVP는 동기 처리라 항상 done/failed 로 돌아오지만,
-    영상 단계에서 비동기로 바뀌어도 계약이 유지되도록 status 를 둔다."""
+    """작업 형태의 응답. 판별은 오래 걸리므로 pending 으로 먼저 돌려주고 GET 으로 상태를 확인한다."""
 
     id: str
     status: JobStatus

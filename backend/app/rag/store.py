@@ -15,7 +15,7 @@ class VectorStore(Protocol):
     def get(self, ids: list[str]) -> list[Chunk]: ...
 
 
-def _vector_literal(embedding: list[float]) -> str:
+def vector_literal(embedding: list[float]) -> str:
     return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
 
 
@@ -31,7 +31,7 @@ class PgVectorStore:
                     "INSERT INTO chunks (id, kind, text, metadata, embedding)"
                     " VALUES (%s, %s, %s, %s::jsonb, %s::vector)",
                     [
-                        (c.id, c.kind, c.text, json.dumps(c.metadata, ensure_ascii=False), _vector_literal(e))
+                        (c.id, c.kind, c.text, json.dumps(c.metadata, ensure_ascii=False), vector_literal(e))
                         for c, e in zip(chunks, embeddings, strict=True)
                     ],
                 )
@@ -41,7 +41,7 @@ class PgVectorStore:
             rows = conn.execute(
                 "SELECT id, kind, text, metadata FROM chunks WHERE kind = %s"
                 " ORDER BY embedding <=> %s::vector LIMIT %s",
-                (kind, _vector_literal(embedding), k),
+                (kind, vector_literal(embedding), k),
             ).fetchall()
         return [Chunk(id=r[0], kind=r[1], text=r[2], metadata=r[3]) for r in rows]
 
@@ -66,14 +66,14 @@ class InMemoryVectorStore:
 
     def search(self, embedding: list[float], kind: str, k: int) -> list[Chunk]:
         candidates = [(c, e) for c, e in self._items.values() if c.kind == kind]
-        candidates.sort(key=lambda item: _cosine_distance(embedding, item[1]))
+        candidates.sort(key=lambda item: cosine_distance(embedding, item[1]))
         return [c for c, _ in candidates[:k]]
 
     def get(self, ids: list[str]) -> list[Chunk]:
         return [self._items[i][0] for i in ids if i in self._items]
 
 
-def _cosine_distance(a: list[float], b: list[float]) -> float:
+def cosine_distance(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
     return 1 - dot / norm if norm else 1.0

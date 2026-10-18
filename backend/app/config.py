@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     llm_model: str = "claude-opus-5-5"
     llm_effort: str = "high"
 
-    # 긴 영상에서 의심 구간을 먼저 골라내는 1차 선별. 판단이 가벼운 작업이라 저렴한 모델을 쓴다.
+    # 긴 영상에서 의심 구간을 먼저 골라내는 1차 선별과 영상 대주제 정리. 판단이 가벼운 작업이라 저렴한 모델을 쓴다.
     filter_model: str = "claude-haiku-5-5"
+    topic_model: str = "claude-haiku-5-5"
+    # 대주제 임베딩의 코사인 유사도가 이 값 이상인 이전 분석을 '비슷한 주제'로 보여 준다.
+    related_min_similarity: float = 0.6
 
     voyage_api_key: str | None = None
     embedding_model: str = "voyage-4"  # 1024차원. 바꾸면 db/schema.sql 의 vector 차원도 맞춘다.

@@ -3,14 +3,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analyses, transcripts
+from app.api import analyses, transcripts, videos
 from app.config import get_settings
-from app.db import init_db
+from app.db import fail_interrupted_jobs, init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db(get_settings().database_url)
+    fail_interrupted_jobs(get_settings().database_url)
     yield
 
 
@@ -23,6 +24,7 @@ app.add_middleware(
 )
 app.include_router(analyses.router)
 app.include_router(transcripts.router)
+app.include_router(videos.router)
 
 
 @app.get("/health")

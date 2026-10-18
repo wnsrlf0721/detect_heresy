@@ -7,7 +7,7 @@ import anthropic
 
 from app import prompts
 from app.errors import AnalysisError
-from app.schemas.llm import FrameTexts, LLMAnalysis, SegmentSelection
+from app.schemas.llm import FrameTexts, LLMAnalysis, LLMTopic, SegmentSelection
 
 
 class Analyzer(Protocol):
@@ -18,6 +18,10 @@ class Screener(Protocol):
     """긴 영상에서 정밀 분석할 구간을 먼저 골라낸다(1차 선별)."""
 
     def screen(self, system: str, user: str) -> SegmentSelection: ...
+
+
+class TopicWriter(Protocol):
+    def write(self, system: str, user: str) -> LLMTopic: ...
 
 
 @contextmanager
@@ -67,7 +71,7 @@ class ClaudeAnalyzer:
 
 
 class _ClaudeLight:
-    """판단이 가벼운 보조 작업(1차 선별)을 저렴한 모델로 처리한다."""
+    """판단이 가벼운 보조 작업(1차 선별, 대주제 정리)을 저렴한 모델로 처리한다."""
 
     def __init__(self, api_key: str | None, model: str):
         self._client = anthropic.Anthropic(api_key=api_key)
@@ -89,6 +93,11 @@ class _ClaudeLight:
 class ClaudeScreener(_ClaudeLight):
     def screen(self, system: str, user: str) -> SegmentSelection:
         return self._parse(system, user, SegmentSelection)
+
+
+class ClaudeTopicWriter(_ClaudeLight):
+    def write(self, system: str, user: str) -> LLMTopic:
+        return self._parse(system, user, LLMTopic)
 
 
 class ClaudeVision:
