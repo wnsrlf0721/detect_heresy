@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analyses, transcripts, videos
+from app.api import analyses, videos
 from app.config import get_settings
 from app.db import fail_interrupted_jobs, init_db
 
@@ -23,7 +23,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(analyses.router)
-app.include_router(transcripts.router)
 app.include_router(videos.router)
 
 

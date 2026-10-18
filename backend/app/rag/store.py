@@ -24,22 +24,25 @@ class PgVectorStore:
         self._url = database_url
 
     def replace_all(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
+        # 지난 적발의 근거(finding_refs)가 가리키므로 지우지 않는다. 빠진 레코드는 검색에서만 뺀다.
         with psycopg.connect(self._url) as conn:
-            conn.execute("DELETE FROM chunks")
             with conn.cursor() as cur:
                 cur.executemany(
-                    "INSERT INTO chunks (id, kind, text, metadata, embedding)"
-                    " VALUES (%s, %s, %s, %s::jsonb, %s::vector)",
+                    "INSERT INTO chunks (id, kind, text, metadata, embedding, active)"
+                    " VALUES (%s, %s, %s, %s::jsonb, %s::vector, true)"
+                    " ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, text = EXCLUDED.text,"
+                    " metadata = EXCLUDED.metadata, embedding = EXCLUDED.embedding, active = true",
                     [
                         (c.id, c.kind, c.text, json.dumps(c.metadata, ensure_ascii=False), vector_literal(e))
                         for c, e in zip(chunks, embeddings, strict=True)
                     ],
                 )
+            conn.execute("UPDATE chunks SET active = false WHERE NOT (id = ANY(%s))", ([c.id for c in chunks],))
 
     def search(self, embedding: list[float], kind: str, k: int) -> list[Chunk]:
         with psycopg.connect(self._url) as conn:
             rows = conn.execute(
-                "SELECT id, kind, text, metadata FROM chunks WHERE kind = %s"
+                "SELECT id, kind, text, metadata FROM chunks WHERE kind = %s AND active"
                 " ORDER BY embedding <=> %s::vector LIMIT %s",
                 (kind, vector_literal(embedding), k),
             ).fetchall()
@@ -50,7 +53,7 @@ class PgVectorStore:
             return []
         with psycopg.connect(self._url) as conn:
             rows = conn.execute(
-                "SELECT id, kind, text, metadata FROM chunks WHERE id = ANY(%s)", (ids,)
+                "SELECT id, kind, text, metadata FROM chunks WHERE id = ANY(%s) AND active", (ids,)
             ).fetchall()
         return [Chunk(id=r[0], kind=r[1], text=r[2], metadata=r[3]) for r in rows]
 

@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine, get_repository
-from app.db.repository import InMemoryAnalysisRepository
+from app.db.repository import InMemoryRepository
 from app.errors import AnalysisError
 from app.main import app
 from app.rag.engine import AnalysisEngine
@@ -16,9 +16,11 @@ TEXT = "예수님이 약속하신 보혜사는 오늘날 이 땅에 육체로 �
 def make_client(embedder, store):
     def _make(output):
         app.dependency_overrides[get_engine] = lambda: AnalysisEngine(embedder, store, FakeAnalyzer(output))
-        repository = InMemoryAnalysisRepository()
+        repository = InMemoryRepository()
         app.dependency_overrides[get_repository] = lambda: repository
-        return TestClient(app)  # with 없이 써서 lifespan(DB 초기화)을 건너뛴다
+        client = TestClient(app)  # with 없이 써서 lifespan(DB 초기화)을 건너뛴다
+        client.repository = repository
+        return client
 
     yield _make
     app.dependency_overrides.clear()
@@ -52,6 +54,21 @@ def test_create_then_get_analysis(make_client):
         "references": None,
     }
     assert body["result"]["findings"][0]["references"][0]["id"] == "scj-promised-pastor"
+
+
+def test_text_is_saved_as_transcript_without_video(make_client):
+    client = make_client(LLMAnalysis(summary="요약", findings=[]))
+    segments = [{"text": TEXT}, {"time": "00:05", "text": "둘째 줄", "source": "stt"}]
+
+    created = client.post("/analyses", json={"segments": segments}).json()
+
+    analysis = client.repository.analyses[created["id"]]
+    assert analysis.video_id is None
+    assert analysis.sources == ["stt", "user"]
+    transcript = client.repository.transcripts[analysis.transcript_id]
+    assert [(s.time, s.source) for s in transcript.stored.result.segments] == [(None, "user"), ("00:05", "stt")]
+    # 영상 분석 API 로는 찾지 않는다.
+    assert client.get(f"/videos/{created['id']}").status_code == 404
 
 
 def test_engine_failure_is_reported_as_failed_job(make_client):

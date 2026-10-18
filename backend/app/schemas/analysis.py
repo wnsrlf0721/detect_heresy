@@ -62,6 +62,8 @@ class Finding(BaseModel):
     heresy_intent: str | None = None
     scripture: list[str] = []
     references: list[Reference] = []
+    # 판별에 넘긴 구간 목록에서 적발된 구간의 번호. 저장할 때 구간(segments)과 잇는 데만 쓰고 응답에는 넣지 않는다.
+    segment_index: int | None = Field(default=None, exclude=True)
 
 
 class AnalysisResult(BaseModel):

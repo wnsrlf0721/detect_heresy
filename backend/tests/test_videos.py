@@ -9,10 +9,10 @@ from app.api.deps import (
     get_engine,
     get_pipeline,
     get_related_min_similarity,
+    get_repository,
     get_topic_service,
-    get_video_repository,
 )
-from app.db.repository import InMemoryVideoRepository
+from app.db.repository import InMemoryRepository
 from app.errors import AnalysisError
 from app.main import app
 from app.media import youtube_video_id
@@ -39,11 +39,14 @@ TOPICS = {
 
 
 class FakeSource:
-    def __init__(self):
+    def __init__(self, error=None):
         self.fetched: list[str] = []
+        self.error = error
 
     def fetch(self, url, workdir):
         self.fetched.append(url)
+        if self.error:
+            raise self.error
         captions = [Segment(time="00:10", text=PASTOR, source="caption")]
         return Media(TITLES[youtube_video_id(url)], 240, Path(workdir) / "a.m4a", Path(workdir) / "v.mp4", captions, [])
 
@@ -61,8 +64,10 @@ class FakeStep:
 class FakeTopicWriter:
     def __init__(self, fail=False):
         self.fail = fail
+        self.calls = 0
 
     def write(self, system, user):
+        self.calls += 1
         if self.fail:
             raise AnalysisError("요청 한도 초과")
         title = next(t for t in TITLES.values() if f"<title>{t}</title>" in user)
@@ -71,20 +76,22 @@ class FakeTopicWriter:
 
 @pytest.fixture
 def make_client(embedder, store):
-    def _make(findings=(), topic_fail=False):
+    def _make(findings=(), topic_fail=False, download_error=None):
         state = {"version": "v1"}
-        source = FakeSource()
+        source = FakeSource(download_error)
         stt = [Segment(time="00:11", text=PASTOR, source="stt")]
         analyzer = FakeAnalyzer(LLMAnalysis(summary="요약", findings=list(findings)))
-        repository = InMemoryVideoRepository()
+        writer = FakeTopicWriter(topic_fail)
+        repository = InMemoryRepository()
         app.dependency_overrides[get_pipeline] = lambda: TranscriptPipeline(source, FakeStep(stt), FakeStep([]))
         app.dependency_overrides[get_engine] = lambda: AnalysisEngine(embedder, store, analyzer)
-        app.dependency_overrides[get_topic_service] = lambda: TopicService(FakeTopicWriter(topic_fail), embedder)
-        app.dependency_overrides[get_video_repository] = lambda: repository
+        app.dependency_overrides[get_topic_service] = lambda: TopicService(writer, embedder)
+        app.dependency_overrides[get_repository] = lambda: repository
         app.dependency_overrides[get_analysis_version] = lambda: state["version"]
         app.dependency_overrides[get_related_min_similarity] = lambda: 0.9
         client = TestClient(app)
         client.source, client.analyzer, client.state, client.repository = source, analyzer, state, repository
+        client.writer = writer
         return client
 
     yield _make
@@ -143,6 +150,10 @@ def test_different_sources_reuse_extracted_text(make_client):
     assert len(client.analyzer.calls) == 2
     assert "<text>" + PASTOR + "</text>" in client.analyzer.calls[1][1]
     assert 'source="caption"' not in client.analyzer.calls[1][1]
+    # 같은 추출 결과를 쓰므로 대주제도 다시 정리하지 않는다.
+    assert client.writer.calls == 1
+    assert body["topic"] == first["topic"]
+    assert len(client.repository.transcripts) == 1
 
 
 def test_changed_reference_data_reanalyzes(make_client):
@@ -165,6 +176,26 @@ def test_force_extracts_again(make_client):
 
     assert created.status_code == 202
     assert len(client.source.fetched) == 2
+    assert len(client.repository.transcripts) == 2
+    assert len(client.repository.videos) == 1
+
+
+def test_findings_point_to_their_segment(make_client):
+    # 1차 선별 없이 구간 두 개(자막, 음성)를 판별하고, 음성 구간만 적발한다.
+    client = make_client([llm_finding(segment_index=1, quote="약속의 목자", score=85)])
+
+    _, body = analyze(client, VIDEO_A)
+
+    assert [(f["time"], f["source"]) for f in body["result"]["findings"]] == [("00:11", "stt")]
+    assert "segment_index" not in body["result"]["findings"][0]
+
+
+def test_download_failure_is_reported_as_failed_job(make_client):
+    client = make_client(download_error=AnalysisError("영상이 너무 깁니다."))
+    _, body = analyze(client, VIDEO_A)
+    assert body["status"] == "failed"
+    assert body["error"] == "영상이 너무 깁니다."
+    assert body["transcript"] is None
 
 
 def test_running_job_is_shared(make_client):
@@ -176,7 +207,7 @@ def test_running_job_is_shared(make_client):
         sources=["caption", "ocr", "stt"],
         created_at=datetime.now(UTC),
     )
-    client.repository.create(running, "AAAAAAAAAAA", "v1")
+    client.repository.create_video_analysis(running, "AAAAAAAAAAA", "v1")
 
     created = client.post("/videos", json={"url": VIDEO_A})
 
@@ -222,6 +253,9 @@ def test_unknown_video_is_404(make_client):
     [
         {"url": "https://youtube.com/channel/abc"},
         {"url": "https://example.com/watch?v=AAAAAAAAAAA"},
+        {"url": "http://youtu.be/AAAAAAAAAAA"},
+        {"url": "file:///etc/passwd"},
+        {"url": ""},
         {"url": VIDEO_A, "sources": []},
         {"url": VIDEO_A, "sources": ["user"]},
     ],

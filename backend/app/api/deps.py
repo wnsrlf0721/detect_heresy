@@ -1,14 +1,7 @@
 from functools import lru_cache
 
 from app.config import get_settings
-from app.db.repository import (
-    AnalysisRepository,
-    PgAnalysisRepository,
-    PgTranscriptRepository,
-    PgVideoRepository,
-    TranscriptRepository,
-    VideoRepository,
-)
+from app.db.repository import PgRepository, Repository
 from app.media.downloader import YtDlpSource
 from app.media.ocr import EasyOcrReader, VisionFrameReader
 from app.media.pipeline import TranscriptPipeline
@@ -54,8 +47,8 @@ def get_related_min_similarity() -> float:
 
 
 @lru_cache
-def get_repository() -> AnalysisRepository:
-    return PgAnalysisRepository(get_settings().database_url)
+def get_repository() -> Repository:
+    return PgRepository(get_settings().database_url)
 
 
 @lru_cache
@@ -73,14 +66,4 @@ def get_pipeline() -> TranscriptPipeline:
     return TranscriptPipeline(
         source=YtDlpSource(settings.max_video_seconds), transcriber=transcriber, reader=reader
     )
-
-
-@lru_cache
-def get_transcript_repository() -> TranscriptRepository:
-    return PgTranscriptRepository(get_settings().database_url)
-
-
-@lru_cache
-def get_video_repository() -> VideoRepository:
-    return PgVideoRepository(get_settings().database_url)
 

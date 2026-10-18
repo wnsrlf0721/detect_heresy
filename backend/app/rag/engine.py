@@ -45,7 +45,8 @@ def verdict_for(score: int) -> Verdict:
     return Verdict.SAFE
 
 
-def _reference(chunk: Chunk) -> Reference:
+def reference_for(chunk: Chunk) -> Reference:
+    """기준 데이터 청크를 화면에 보이는 근거 형태로 바꾼다. 저장된 적발을 다시 읽을 때도 쓴다."""
     m = chunk.metadata
     if chunk.kind == "orthodox":
         return Reference(id=chunk.id, kind="orthodox", label=f"{m['source']} {m['section']}", excerpt=m["text"])
@@ -132,6 +133,7 @@ class AnalysisEngine:
             return None
         segment = targets[raw.segment_index].segment
         return Finding(
+            segment_index=targets[raw.segment_index].index,
             time=segment.time,
             source=segment.source,
             # 구간에 없는 문장(앞뒤 문맥 포함)을 인용했다면 구간 원문으로 대체한다.
@@ -144,7 +146,7 @@ class AnalysisEngine:
             heresy_intent=raw.heresy_intent,
             scripture=raw.scripture,
             # 검색되지 않은 id 는 버려서, 실재하는 기준 데이터만 근거로 표시되게 한다.
-            references=[_reference(refs[i]) for i in dict.fromkeys(raw.reference_ids) if i in refs],
+            references=[reference_for(refs[i]) for i in dict.fromkeys(raw.reference_ids) if i in refs],
         )
 
     def _analyze_batch(

@@ -2,12 +2,8 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.api.deps import get_pipeline, get_transcript_repository
-from app.db.repository import InMemoryTranscriptRepository
 from app.errors import AnalysisError
-from app.main import app
 from app.media import format_time
 from app.media.downloader import Media, parse_json3
 from app.media.ocr import dedupe
@@ -108,44 +104,3 @@ def test_pipeline_fails_when_nothing_is_extracted():
     with pytest.raises(AnalysisError, match="추출하지 못했습니다"):
         TranscriptPipeline(FakeSource(), FakeStep([]), FakeStep([])).run(URL)
 
-
-@pytest.fixture
-def make_client():
-    def _make(pipeline):
-        repository = InMemoryTranscriptRepository()
-        app.dependency_overrides[get_pipeline] = lambda: pipeline
-        app.dependency_overrides[get_transcript_repository] = lambda: repository
-        return TestClient(app)
-
-    yield _make
-    app.dependency_overrides.clear()
-
-
-def test_create_then_get_transcript(make_client):
-    client = make_client(TranscriptPipeline(FakeSource([CAPTION]), FakeStep([STT]), FakeStep([OCR])))
-
-    created = client.post("/transcripts", json={"url": URL})
-    assert created.status_code == 202
-    assert created.json()["status"] == "pending"
-
-    # TestClient 는 응답을 돌려주기 전에 백그라운드 작업까지 끝낸다.
-    body = client.get(f"/transcripts/{created.json()['id']}").json()
-    assert body["status"] == "done"
-    assert body["result"]["segments"][1] == {"time": "00:02", "text": "음성", "source": "stt"}
-
-
-def test_download_failure_is_reported_as_failed_job(make_client):
-    client = make_client(TranscriptPipeline(FakeSource(error=AnalysisError("영상이 너무 깁니다.")), FakeStep([]), FakeStep([])))
-
-    body = client.get(f"/transcripts/{client.post('/transcripts', json={'url': URL}).json()['id']}").json()
-    assert body["status"] == "failed"
-    assert body["error"] == "영상이 너무 깁니다."
-
-
-def test_unknown_transcript_is_404(make_client):
-    assert make_client(None).get("/transcripts/없는-id").status_code == 404
-
-
-@pytest.mark.parametrize("url", ["http://youtu.be/abc", "https://example.com/video.mp4", "file:///etc/passwd", ""])
-def test_non_youtube_url_is_422(make_client, url):
-    assert make_client(None).post("/transcripts", json={"url": url}).status_code == 422

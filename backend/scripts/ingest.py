@@ -1,6 +1,6 @@
-"""기준 데이터를 임베딩해 Vector DB에 적재한다. 기존 청크는 모두 교체된다.
+"""기준 데이터를 임베딩해 Vector DB에 적재한다. 같은 id 는 갱신하고, data/ 에서 빠진 청크는 검색에서 뺀다.
 
-실행: uv run python -m scripts.ingest
+실행: python -m scripts.ingest (venv 에서)
 """
 
 from app.config import get_settings

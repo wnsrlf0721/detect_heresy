@@ -54,14 +54,6 @@ export interface TranscriptResult {
   warnings: string[];
 }
 
-export interface TranscriptResponse {
-  id: string;
-  status: JobStatus;
-  progress: string | null;
-  result: TranscriptResult | null;
-  error: string | null;
-}
-
 export type VideoSource = "caption" | "stt" | "ocr";
 
 export interface VideoTopic {
@@ -113,14 +105,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(message || `요청이 실패했습니다 (${response.status}).`);
   }
   return response.json();
-}
-
-export function createTranscript(url: string): Promise<TranscriptResponse> {
-  return request("/transcripts", { method: "POST", body: JSON.stringify({ url }) });
-}
-
-export function getTranscript(id: string): Promise<TranscriptResponse> {
-  return request(`/transcripts/${id}`);
 }
 
 export function createAnalysis(segments: Segment[]): Promise<AnalysisResponse> {

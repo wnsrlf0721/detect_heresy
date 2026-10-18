@@ -1,237 +1,241 @@
-from dataclasses import dataclass
+"""분석 저장소. 영상 분석과 텍스트 판별이 같은 테이블을 쓴다. 테이블은 schema.sql, 설명은 docs/DATABASE.md 에 있다.
+
+videos ─ transcripts ─ segments
+              └─ analyses ─ findings ─ finding_refs ─ chunks
+"""
+
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from itertools import count
 from typing import Protocol
+from uuid import uuid4
 
 import psycopg
 
+from app.rag.engine import reference_for
 from app.rag.store import cosine_distance, vector_literal
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse, JobStatus
-from app.schemas.transcript import TranscriptResponse, TranscriptResult
-from app.schemas.video import RelatedVideo, VideoResponse
+from app.schemas.analysis import AnalysisResponse, AnalysisResult, Finding, JobStatus, Reference, Segment
+from app.schemas.reference import Chunk
+from app.schemas.transcript import TranscriptResult
+from app.schemas.video import RelatedVideo, VideoResponse, VideoTopic
 
 
-class AnalysisRepository(Protocol):
-    def create(self, request: AnalysisRequest, response: AnalysisResponse) -> None: ...
+@dataclass
+class StoredTranscript:
+    """저장된 추출 결과. segment_ids 는 result.segments 와 같은 순서다."""
 
-    def update(self, response: AnalysisResponse) -> None: ...
-
-    def get(self, analysis_id: str) -> AnalysisResponse | None: ...
-
-
-class PgAnalysisRepository:
-    def __init__(self, database_url: str):
-        self._url = database_url
-
-    def create(self, request: AnalysisRequest, response: AnalysisResponse) -> None:
-        with psycopg.connect(self._url) as conn:
-            conn.execute(
-                "INSERT INTO analyses (id, status, request) VALUES (%s, %s, %s::jsonb)",
-                (response.id, response.status.value, request.model_dump_json()),
-            )
-
-    def update(self, response: AnalysisResponse) -> None:
-        result = response.result.model_dump_json() if response.result else None
-        with psycopg.connect(self._url) as conn:
-            conn.execute(
-                "UPDATE analyses SET status = %s, result = %s::jsonb, error = %s WHERE id = %s",
-                (response.status.value, result, response.error, response.id),
-            )
-
-    def get(self, analysis_id: str) -> AnalysisResponse | None:
-        with psycopg.connect(self._url) as conn:
-            row = conn.execute(
-                "SELECT id::text, status, result, error FROM analyses WHERE id::text = %s", (analysis_id,)
-            ).fetchone()
-        if row is None:
-            return None
-        return AnalysisResponse(id=row[0], status=row[1], result=row[2], error=row[3])
+    id: str
+    result: TranscriptResult
+    segment_ids: list[int]
+    topic: VideoTopic | None = None
 
 
-class InMemoryAnalysisRepository:
-    def __init__(self):
-        self._items: dict[str, AnalysisResponse] = {}
+class Repository(Protocol):
+    def create_text_analysis(self, analysis_id: str, segments: list[Segment], version: str) -> list[int]:
+        """직접 입력한 텍스트를 추출 결과(영상 없음)로 저장하고 판별 작업을 만든다. 구간 id 를 입력 순서대로 돌려준다."""
 
-    def create(self, request: AnalysisRequest, response: AnalysisResponse) -> None:
-        self._items[response.id] = response
+    def create_video_analysis(self, job: VideoResponse, video_id: str, version: str) -> None:
+        """영상(처음 보면)과 판별 작업을 만든다. 추출 결과는 save_transcript / use_transcript 로 잇는다."""
 
-    def update(self, response: AnalysisResponse) -> None:
-        self._items[response.id] = response
+    def set_status(
+        self, analysis_id: str, status: JobStatus, progress: str | None = None, error: str | None = None
+    ) -> None: ...
 
-    def get(self, analysis_id: str) -> AnalysisResponse | None:
-        return self._items.get(analysis_id)
+    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+        """새로 추출한 결과를 저장하고 작업에 잇는다. 영상 제목과 길이도 채운다."""
 
+    def use_transcript(self, analysis_id: str, transcript_id: str) -> None:
+        """이미 저장된 추출 결과를 작업에 잇는다."""
 
-class TranscriptRepository(Protocol):
-    def create(self, url: str, response: TranscriptResponse) -> None: ...
+    def save_result(self, analysis_id: str, result: AnalysisResult, segment_ids: list[int]) -> None:
+        """판별 결과와 적발을 저장한다. segment_ids 는 판별에 넘긴 구간 순서이고, 적발의 segment_index 가 가리킨다."""
 
-    def update(self, response: TranscriptResponse) -> None: ...
+    def save_topic(self, transcript_id: str, topic: VideoTopic, embedding: list[float]) -> None: ...
 
-    def get(self, transcript_id: str) -> TranscriptResponse | None: ...
+    def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None: ...
 
+    def get_video_analysis(self, analysis_id: str) -> VideoResponse | None: ...
 
-class PgTranscriptRepository:
-    def __init__(self, database_url: str):
-        self._url = database_url
-
-    def create(self, url: str, response: TranscriptResponse) -> None:
-        with psycopg.connect(self._url) as conn:
-            conn.execute(
-                "INSERT INTO transcripts (id, status, url) VALUES (%s, %s, %s)",
-                (response.id, response.status.value, url),
-            )
-
-    def update(self, response: TranscriptResponse) -> None:
-        result = response.result.model_dump_json() if response.result else None
-        with psycopg.connect(self._url) as conn:
-            conn.execute(
-                "UPDATE transcripts SET status = %s, progress = %s, result = %s::jsonb, error = %s"
-                " WHERE id = %s",
-                (response.status.value, response.progress, result, response.error, response.id),
-            )
-
-    def get(self, transcript_id: str) -> TranscriptResponse | None:
-        with psycopg.connect(self._url) as conn:
-            row = conn.execute(
-                "SELECT id::text, status, progress, result, error FROM transcripts WHERE id::text = %s",
-                (transcript_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return TranscriptResponse(id=row[0], status=row[1], progress=row[2], result=row[3], error=row[4])
-
-
-class InMemoryTranscriptRepository:
-    def __init__(self):
-        self._items: dict[str, TranscriptResponse] = {}
-
-    def create(self, url: str, response: TranscriptResponse) -> None:
-        self._items[response.id] = response
-
-    def update(self, response: TranscriptResponse) -> None:
-        self._items[response.id] = response
-
-    def get(self, transcript_id: str) -> TranscriptResponse | None:
-        return self._items.get(transcript_id)
-
-
-class VideoRepository(Protocol):
-    def create(self, response: VideoResponse, video_id: str, version: str) -> None: ...
-
-    def update(self, response: VideoResponse, topic_embedding: list[float] | None = None) -> None:
-        """topic_embedding 을 넘기지 않으면 저장된 값을 그대로 둔다."""
-
-    def get(self, job_id: str) -> VideoResponse | None: ...
-
-    def find(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
+    def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
         """같은 영상·출처·버전의 가장 최근 작업. 끝났거나 아직 진행 중인 것만 찾는다.
         서버 재시작으로 끊긴 작업은 시작할 때 실패로 바뀌므로(app.db.fail_interrupted_jobs) 찾지 않는다."""
 
-    def find_transcript(self, video_id: str) -> TranscriptResult | None:
-        """출처나 버전과 상관없이, 이 영상에서 가장 최근에 추출한 텍스트."""
+    def find_transcript(self, video_id: str) -> StoredTranscript | None:
+        """출처나 버전과 상관없이, 이 영상에서 가장 최근에 추출한 결과."""
 
-    def related(self, job_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
+    def related(self, analysis_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
         """대주제가 비슷한 다른 영상의 최근 분석. 유사도가 높은 순서다."""
 
 
-_VIDEO_COLUMNS = "id::text, status, url, sources, created_at, progress, transcript, result, topic, error"
+def _segment_id(finding: Finding, segment_ids: list[int]) -> int:
+    if finding.segment_index is None or not 0 <= finding.segment_index < len(segment_ids):
+        raise ValueError(f"적발이 판별한 구간을 가리키지 않습니다: {finding.quote}")
+    return segment_ids[finding.segment_index]
 
 
-def _video_from_row(row) -> VideoResponse:
-    return VideoResponse(
-        id=row[0],
-        status=row[1],
-        url=row[2],
-        sources=row[3].split(","),
-        created_at=row[4],
-        progress=row[5],
-        transcript=row[6],
-        result=row[7],
-        topic=row[8],
-        error=row[9],
-    )
-
-
-def _json(model) -> str | None:
-    return model.model_dump_json() if model is not None else None
-
-
-class PgVideoRepository:
+class PgRepository:
     def __init__(self, database_url: str):
         self._url = database_url
 
-    def create(self, response: VideoResponse, video_id: str, version: str) -> None:
+    def create_text_analysis(self, analysis_id: str, segments: list[Segment], version: str) -> list[int]:
+        transcript_id = str(uuid4())
+        with psycopg.connect(self._url) as conn:
+            conn.execute("INSERT INTO transcripts (id) VALUES (%s)", (transcript_id,))
+            segment_ids = self._insert_segments(conn, transcript_id, segments)
+            conn.execute(
+                "INSERT INTO analyses (id, transcript_id, sources, version, status) VALUES (%s, %s, %s, %s, %s)",
+                (analysis_id, transcript_id, sorted({s.source for s in segments}), version, JobStatus.PENDING.value),
+            )
+        return segment_ids
+
+    def create_video_analysis(self, job: VideoResponse, video_id: str, version: str) -> None:
         with psycopg.connect(self._url) as conn:
             conn.execute(
-                "INSERT INTO video_analyses (id, video_id, url, sources, version, status, created_at)"
+                "INSERT INTO videos (video_id, url) VALUES (%s, %s) ON CONFLICT (video_id) DO NOTHING",
+                (video_id, job.url),
+            )
+            conn.execute(
+                "INSERT INTO analyses (id, video_id, sources, version, status, progress, created_at)"
                 " VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (
-                    response.id,
-                    video_id,
-                    response.url,
-                    ",".join(response.sources),
-                    version,
-                    response.status.value,
-                    response.created_at,
-                ),
+                (job.id, video_id, job.sources, version, job.status.value, job.progress, job.created_at),
             )
 
-    def update(self, response: VideoResponse, topic_embedding: list[float] | None = None) -> None:
-        embedding = vector_literal(topic_embedding) if topic_embedding is not None else None
+    def set_status(
+        self, analysis_id: str, status: JobStatus, progress: str | None = None, error: str | None = None
+    ) -> None:
         with psycopg.connect(self._url) as conn:
             conn.execute(
-                "UPDATE video_analyses SET status = %s, progress = %s, transcript = %s::jsonb, result = %s::jsonb,"
-                " topic = %s::jsonb, error = %s, topic_embedding = COALESCE(%s::vector, topic_embedding)"
-                " WHERE id = %s",
-                (
-                    response.status.value,
-                    response.progress,
-                    _json(response.transcript),
-                    _json(response.result),
-                    _json(response.topic),
-                    response.error,
-                    embedding,
-                    response.id,
-                ),
+                "UPDATE analyses SET status = %s, progress = %s, error = %s WHERE id = %s",
+                (status.value, progress, error, analysis_id),
             )
 
-    def get(self, job_id: str) -> VideoResponse | None:
+    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+        transcript_id = str(uuid4())
         with psycopg.connect(self._url) as conn:
-            row = conn.execute(f"SELECT {_VIDEO_COLUMNS} FROM video_analyses WHERE id::text = %s", (job_id,)).fetchone()
-        return _video_from_row(row) if row else None
+            conn.execute(
+                "UPDATE videos SET title = %s, duration = %s WHERE video_id = %s",
+                (transcript.title, transcript.duration, video_id),
+            )
+            conn.execute(
+                "INSERT INTO transcripts (id, video_id, warnings) VALUES (%s, %s, %s)",
+                (transcript_id, video_id, transcript.warnings),
+            )
+            segment_ids = self._insert_segments(conn, transcript_id, transcript.segments)
+            conn.execute("UPDATE analyses SET transcript_id = %s WHERE id = %s", (transcript_id, analysis_id))
+        return StoredTranscript(transcript_id, transcript, segment_ids)
 
-    def find(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
+    def use_transcript(self, analysis_id: str, transcript_id: str) -> None:
+        with psycopg.connect(self._url) as conn:
+            conn.execute("UPDATE analyses SET transcript_id = %s WHERE id = %s", (transcript_id, analysis_id))
+
+    def save_result(self, analysis_id: str, result: AnalysisResult, segment_ids: list[int]) -> None:
+        with psycopg.connect(self._url) as conn:
+            conn.execute(
+                "UPDATE analyses SET verdict = %s, score = %s, summary = %s WHERE id = %s",
+                (result.verdict.value, result.score, result.summary, analysis_id),
+            )
+            for position, finding in enumerate(result.findings):
+                finding_id = conn.execute(
+                    "INSERT INTO findings (analysis_id, position, segment_id, quote, score, group_name, topic, reason,"
+                    " orthodox_refutation, heresy_intent, scripture)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (
+                        analysis_id,
+                        position,
+                        _segment_id(finding, segment_ids),
+                        finding.quote,
+                        finding.score,
+                        finding.group,
+                        finding.topic.value if finding.topic else None,
+                        finding.reason,
+                        finding.orthodox_refutation,
+                        finding.heresy_intent,
+                        finding.scripture,
+                    ),
+                ).fetchone()[0]
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO finding_refs (finding_id, position, chunk_id) VALUES (%s, %s, %s)",
+                        [(finding_id, i, ref.id) for i, ref in enumerate(finding.references)],
+                    )
+
+    def save_topic(self, transcript_id: str, topic: VideoTopic, embedding: list[float]) -> None:
+        with psycopg.connect(self._url) as conn:
+            conn.execute(
+                "UPDATE transcripts SET topic_title = %s, topic_summary = %s, topic_keywords = %s,"
+                " topic_embedding = %s::vector WHERE id = %s",
+                (topic.title, topic.summary, topic.keywords, vector_literal(embedding), transcript_id),
+            )
+
+    def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
-                f"SELECT {_VIDEO_COLUMNS} FROM video_analyses"
-                " WHERE video_id = %s AND sources = %s AND version = %s AND status <> 'failed'"
-                " ORDER BY created_at DESC LIMIT 1",
-                (video_id, ",".join(sources), version),
+                "SELECT id::text, status, error, verdict, score, summary FROM analyses"
+                " WHERE id::text = %s AND video_id IS NULL",
+                (analysis_id,),
             ).fetchone()
-        return _video_from_row(row) if row else None
+            if row is None:
+                return None
+            return AnalysisResponse(
+                id=row[0], status=row[1], error=row[2], result=self._load_result(conn, row[0], *row[3:6])
+            )
 
-    def find_transcript(self, video_id: str) -> TranscriptResult | None:
+    def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
-                "SELECT transcript FROM video_analyses WHERE video_id = %s AND transcript IS NOT NULL"
-                " ORDER BY created_at DESC LIMIT 1",
-                (video_id,),
+                "SELECT a.id::text, a.status, v.url, a.sources, a.created_at, a.progress, a.error,"
+                " a.transcript_id::text, a.verdict, a.score, a.summary"
+                " FROM analyses a JOIN videos v ON v.video_id = a.video_id WHERE a.id::text = %s",
+                (analysis_id,),
             ).fetchone()
-        return TranscriptResult.model_validate(row[0]) if row else None
+            if row is None:
+                return None
+            stored = self._load_transcript(conn, row[7]) if row[7] else None
+            return VideoResponse(
+                id=row[0],
+                status=row[1],
+                url=row[2],
+                sources=row[3],
+                created_at=row[4],
+                progress=row[5],
+                error=row[6],
+                transcript=stored.result if stored else None,
+                topic=stored.topic if stored else None,
+                result=self._load_result(conn, row[0], *row[8:11]),
+            )
 
-    def related(self, job_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
-        # 영상마다 가장 최근 분석 하나만 후보로 두고, 그중 유사도가 높은 것을 고른다.
+    def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
+        with psycopg.connect(self._url) as conn:
+            row = conn.execute(
+                "SELECT id::text FROM analyses WHERE video_id = %s AND sources = %s AND version = %s"
+                " AND status <> 'failed' ORDER BY created_at DESC LIMIT 1",
+                (video_id, sources, version),
+            ).fetchone()
+        return self.get_video_analysis(row[0]) if row else None
+
+    def find_transcript(self, video_id: str) -> StoredTranscript | None:
+        with psycopg.connect(self._url) as conn:
+            row = conn.execute(
+                "SELECT id::text FROM transcripts WHERE video_id = %s ORDER BY created_at DESC LIMIT 1", (video_id,)
+            ).fetchone()
+            return self._load_transcript(conn, row[0]) if row else None
+
+    def related(self, analysis_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
+        # 영상마다 대주제가 있는 가장 최근 분석 하나만 후보로 두고, 그중 유사도가 높은 것을 고른다.
         with psycopg.connect(self._url) as conn:
             rows = conn.execute(
-                "WITH me AS (SELECT video_id, topic_embedding FROM video_analyses"
-                " WHERE id::text = %s AND topic_embedding IS NOT NULL)"
+                "WITH me AS (SELECT a.video_id, t.topic_embedding FROM analyses a"
+                " JOIN transcripts t ON t.id = a.transcript_id"
+                " WHERE a.id::text = %s AND t.topic_embedding IS NOT NULL)"
                 " SELECT id, url, title, topic, verdict, score, similarity, created_at FROM ("
-                " SELECT DISTINCT ON (v.video_id) v.id::text AS id, v.url, v.transcript->>'title' AS title,"
-                " v.topic->>'title' AS topic, v.result->>'verdict' AS verdict, (v.result->>'score')::int AS score,"
-                " 1 - (v.topic_embedding <=> me.topic_embedding) AS similarity, v.created_at"
-                " FROM video_analyses v, me"
-                " WHERE v.status = 'done' AND v.topic_embedding IS NOT NULL AND v.video_id <> me.video_id"
-                " ORDER BY v.video_id, v.created_at DESC"
+                " SELECT DISTINCT ON (a.video_id) a.id::text AS id, v.url, v.title, t.topic_title AS topic,"
+                " a.verdict, a.score, 1 - (t.topic_embedding <=> me.topic_embedding) AS similarity, a.created_at"
+                " FROM analyses a JOIN transcripts t ON t.id = a.transcript_id"
+                " JOIN videos v ON v.video_id = a.video_id, me"
+                " WHERE a.status = 'done' AND t.topic_embedding IS NOT NULL AND a.video_id <> me.video_id"
+                " ORDER BY a.video_id, a.created_at DESC"
                 ") latest WHERE similarity >= %s ORDER BY similarity DESC LIMIT %s",
-                (job_id, min_similarity, limit),
+                (analysis_id, min_similarity, limit),
             ).fetchall()
         return [
             RelatedVideo(
@@ -247,72 +251,229 @@ class PgVideoRepository:
             for r in rows
         ]
 
+    @staticmethod
+    def _insert_segments(conn, transcript_id: str, segments: list[Segment]) -> list[int]:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO segments (transcript_id, position, source, time, text) VALUES (%s, %s, %s, %s, %s)",
+                [(transcript_id, i, s.source, s.time, s.text) for i, s in enumerate(segments)],
+            )
+        rows = conn.execute(
+            "SELECT id FROM segments WHERE transcript_id = %s ORDER BY position", (transcript_id,)
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    @staticmethod
+    def _load_transcript(conn, transcript_id: str) -> StoredTranscript:
+        row = conn.execute(
+            "SELECT v.title, v.duration, t.warnings, t.topic_title, t.topic_summary, t.topic_keywords"
+            " FROM transcripts t LEFT JOIN videos v ON v.video_id = t.video_id WHERE t.id = %s",
+            (transcript_id,),
+        ).fetchone()
+        segments = conn.execute(
+            "SELECT id, time, text, source FROM segments WHERE transcript_id = %s ORDER BY position",
+            (transcript_id,),
+        ).fetchall()
+        result = TranscriptResult(
+            title=row[0] or "",
+            duration=row[1] or 0,
+            segments=[Segment(time=s[1], text=s[2], source=s[3]) for s in segments],
+            warnings=row[2],
+        )
+        topic = VideoTopic(title=row[3], summary=row[4], keywords=row[5]) if row[3] else None
+        return StoredTranscript(transcript_id, result, [s[0] for s in segments], topic)
+
+    @staticmethod
+    def _load_result(conn, analysis_id: str, verdict, score, summary) -> AnalysisResult | None:
+        if verdict is None:
+            return None
+        refs: dict[int, list[Reference]] = {}
+        for finding_id, chunk_id, kind, text, metadata in conn.execute(
+            "SELECT r.finding_id, c.id, c.kind, c.text, c.metadata FROM finding_refs r"
+            " JOIN findings f ON f.id = r.finding_id JOIN chunks c ON c.id = r.chunk_id"
+            " WHERE f.analysis_id = %s ORDER BY r.finding_id, r.position",
+            (analysis_id,),
+        ):
+            refs.setdefault(finding_id, []).append(
+                reference_for(Chunk(id=chunk_id, kind=kind, text=text, metadata=metadata))
+            )
+        findings = [
+            Finding(
+                time=r[1],
+                source=r[2],
+                quote=r[3],
+                score=r[4],
+                group=r[5],
+                topic=r[6],
+                reason=r[7],
+                orthodox_refutation=r[8],
+                heresy_intent=r[9],
+                scripture=r[10],
+                references=refs.get(r[0], []),
+            )
+            for r in conn.execute(
+                "SELECT f.id, s.time, s.source, f.quote, f.score, f.group_name, f.topic, f.reason,"
+                " f.orthodox_refutation, f.heresy_intent, f.scripture"
+                " FROM findings f JOIN segments s ON s.id = f.segment_id"
+                " WHERE f.analysis_id = %s ORDER BY f.position",
+                (analysis_id,),
+            )
+        ]
+        return AnalysisResult(verdict=verdict, score=score, summary=summary, findings=findings)
+
 
 @dataclass
-class _VideoRow:
-    response: VideoResponse
-    video_id: str
+class _Analysis:
+    id: str
+    video_id: str | None
+    sources: list[str]
     version: str
+    status: JobStatus
+    created_at: datetime
+    seq: int  # 만든 시각이 같을 때 순서
+    transcript_id: str | None = None
+    progress: str | None = None
+    error: str | None = None
+    result: AnalysisResult | None = None
+
+
+@dataclass
+class _Video:
+    url: str
+    title: str | None = None
+    duration: int | None = None
+
+
+@dataclass
+class _Transcript:
+    stored: StoredTranscript
+    video_id: str | None
+    seq: int
     embedding: list[float] | None = None
 
 
-class InMemoryVideoRepository:
-    def __init__(self):
-        self._rows: dict[str, _VideoRow] = {}
+@dataclass
+class InMemoryRepository:
+    """테스트용. PgRepository 와 같은 규칙(적발은 판별한 구간을 가리켜야 함 등)을 따른다."""
 
-    def create(self, response: VideoResponse, video_id: str, version: str) -> None:
-        self._rows[response.id] = _VideoRow(response, video_id, version)
+    videos: dict[str, _Video] = field(default_factory=dict)
+    transcripts: dict[str, _Transcript] = field(default_factory=dict)
+    analyses: dict[str, _Analysis] = field(default_factory=dict)
 
-    def update(self, response: VideoResponse, topic_embedding: list[float] | None = None) -> None:
-        row = self._rows[response.id]
-        row.response = response
-        if topic_embedding is not None:
-            row.embedding = topic_embedding
+    def __post_init__(self):
+        self._ids = count(1)
 
-    def get(self, job_id: str) -> VideoResponse | None:
-        row = self._rows.get(job_id)
-        return row.response if row else None
+    def create_text_analysis(self, analysis_id: str, segments: list[Segment], version: str) -> list[int]:
+        stored = self._new_transcript(None, TranscriptResult(title="", duration=0, segments=segments))
+        self._new_analysis(analysis_id, None, sorted({s.source for s in segments}), version, JobStatus.PENDING)
+        self.analyses[analysis_id].transcript_id = stored.id
+        return stored.segment_ids
 
-    def _latest_first(self) -> list[_VideoRow]:
-        return sorted(self._rows.values(), key=lambda row: row.response.created_at, reverse=True)
+    def create_video_analysis(self, job: VideoResponse, video_id: str, version: str) -> None:
+        self.videos.setdefault(video_id, _Video(job.url))
+        self._new_analysis(job.id, video_id, list(job.sources), version, job.status, job.created_at)
 
-    def find(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
-        for row in self._latest_first():
-            r = row.response
-            if (row.video_id, r.sources, row.version) == (video_id, sources, version) and r.status != JobStatus.FAILED:
-                return r
+    def set_status(
+        self, analysis_id: str, status: JobStatus, progress: str | None = None, error: str | None = None
+    ) -> None:
+        analysis = self.analyses[analysis_id]
+        analysis.status, analysis.progress, analysis.error = status, progress, error
+
+    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+        video = self.videos[video_id]
+        video.title, video.duration = transcript.title, transcript.duration
+        stored = self._new_transcript(video_id, transcript)
+        self.analyses[analysis_id].transcript_id = stored.id
+        return stored
+
+    def use_transcript(self, analysis_id: str, transcript_id: str) -> None:
+        self.analyses[analysis_id].transcript_id = transcript_id
+
+    def save_result(self, analysis_id: str, result: AnalysisResult, segment_ids: list[int]) -> None:
+        for finding in result.findings:
+            _segment_id(finding, segment_ids)
+        # DB 에서 다시 읽은 것처럼 구간 번호는 남기지 않는다.
+        findings = [f.model_copy(update={"segment_index": None}) for f in result.findings]
+        self.analyses[analysis_id].result = result.model_copy(update={"findings": findings})
+
+    def save_topic(self, transcript_id: str, topic: VideoTopic, embedding: list[float]) -> None:
+        transcript = self.transcripts[transcript_id]
+        transcript.stored.topic, transcript.embedding = topic, embedding
+
+    def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None:
+        a = self.analyses.get(analysis_id)
+        if a is None or a.video_id is not None:
+            return None
+        return AnalysisResponse(id=a.id, status=a.status, result=a.result, error=a.error)
+
+    def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
+        a = self.analyses.get(analysis_id)
+        if a is None or a.video_id is None:
+            return None
+        stored = self._stored(a)
+        return VideoResponse(
+            id=a.id,
+            status=a.status,
+            url=self.videos[a.video_id].url,
+            sources=a.sources,
+            created_at=a.created_at,
+            progress=a.progress,
+            error=a.error,
+            transcript=stored.result if stored else None,
+            topic=stored.topic if stored else None,
+            result=a.result,
+        )
+
+    def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
+        for a in self._latest_first():
+            if (a.video_id, a.sources, a.version) == (video_id, sources, version) and a.status != JobStatus.FAILED:
+                return self.get_video_analysis(a.id)
         return None
 
-    def find_transcript(self, video_id: str) -> TranscriptResult | None:
-        for row in self._latest_first():
-            if row.video_id == video_id and row.response.transcript is not None:
-                return row.response.transcript
-        return None
+    def find_transcript(self, video_id: str) -> StoredTranscript | None:
+        found = [t for t in self.transcripts.values() if t.video_id == video_id]
+        return max(found, key=lambda t: t.seq).stored if found else None
 
-    def related(self, job_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
-        me = self._rows.get(job_id)
-        if me is None or me.embedding is None:
+    def related(self, analysis_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
+        me = self.analyses.get(analysis_id)
+        mine = self.transcripts.get(me.transcript_id) if me and me.transcript_id else None
+        if mine is None or mine.embedding is None:
             return []
-        latest: dict[str, _VideoRow] = {}
-        for row in self._latest_first():
-            if row.response.status == JobStatus.DONE and row.embedding is not None and row.video_id != me.video_id:
-                latest.setdefault(row.video_id, row)
+        latest: dict[str, tuple[_Analysis, _Transcript]] = {}
+        for a in self._latest_first():
+            t = self.transcripts.get(a.transcript_id) if a.transcript_id else None
+            if a.status == JobStatus.DONE and t and t.embedding is not None and a.video_id not in (None, me.video_id):
+                latest.setdefault(a.video_id, (a, t))
         found = []
-        for row in latest.values():
-            similarity = 1 - cosine_distance(me.embedding, row.embedding)
-            if similarity < min_similarity:
-                continue
-            r = row.response
-            found.append(
-                RelatedVideo(
-                    id=r.id,
-                    url=r.url,
-                    title=r.transcript.title if r.transcript else "",
-                    topic=r.topic.title if r.topic else "",
-                    verdict=r.result.verdict,
-                    score=r.result.score,
-                    similarity=round(similarity, 3),
-                    created_at=r.created_at,
+        for a, t in latest.values():
+            similarity = 1 - cosine_distance(mine.embedding, t.embedding)
+            if similarity >= min_similarity:
+                found.append(
+                    RelatedVideo(
+                        id=a.id,
+                        url=self.videos[a.video_id].url,
+                        title=self.videos[a.video_id].title or "",
+                        topic=t.stored.topic.title,
+                        verdict=a.result.verdict,
+                        score=a.result.score,
+                        similarity=round(similarity, 3),
+                        created_at=a.created_at,
+                    )
                 )
-            )
         return sorted(found, key=lambda video: video.similarity, reverse=True)[:limit]
+
+    def _new_analysis(self, analysis_id, video_id, sources, version, status, created_at=None) -> None:
+        self.analyses[analysis_id] = _Analysis(
+            analysis_id, video_id, sources, version, status, created_at or datetime.now(UTC), next(self._ids)
+        )
+
+    def _new_transcript(self, video_id: str | None, transcript: TranscriptResult) -> StoredTranscript:
+        stored = StoredTranscript(str(uuid4()), transcript, [next(self._ids) for _ in transcript.segments])
+        self.transcripts[stored.id] = _Transcript(stored, video_id, next(self._ids))
+        return stored
+
+    def _stored(self, analysis: _Analysis) -> StoredTranscript | None:
+        return self.transcripts[analysis.transcript_id].stored if analysis.transcript_id else None
+
+    def _latest_first(self) -> list[_Analysis]:
+        return sorted(self.analyses.values(), key=lambda a: (a.created_at, a.seq), reverse=True)

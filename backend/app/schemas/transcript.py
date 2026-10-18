@@ -1,10 +1,10 @@
-"""텍스트 추출 API(/transcripts)의 요청·응답 스키마."""
+"""영상 → 텍스트 추출 결과의 스키마. 영상 분석 API(/videos) 응답의 transcript 로 쓰인다."""
 
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel
 
-from app.schemas.analysis import JobStatus, Segment
+from app.schemas.analysis import Segment
 
 ALLOWED_HOSTS = {"youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com"}
 
@@ -16,32 +16,10 @@ def check_youtube_url(value: str) -> str:
     return value
 
 
-class TranscriptRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    url: str = Field(max_length=500)
-
-    @field_validator("url")
-    @classmethod
-    def _youtube_only(cls, value: str) -> str:
-        return check_youtube_url(value)
-
-
 class TranscriptResult(BaseModel):
     title: str
     duration: int  # 초
     # caption(영상 자막) / stt(음성 인식) / ocr(화면 글자)가 섞여 있고, 출처별로 시간순이다.
-    # 그대로 POST /analyses 의 segments 로 넘길 수 있다.
     segments: list[Segment]
     # 일부 출처만 실패했을 때의 안내. 나머지 출처의 결과는 그대로 돌려준다.
     warnings: list[str] = []
-
-
-class TranscriptResponse(BaseModel):
-    """작업 형태의 응답. 추출은 오래 걸리므로 pending 으로 먼저 돌려주고 GET 으로 상태를 확인한다."""
-
-    id: str
-    status: JobStatus
-    progress: str | None = None  # 진행 중인 단계 (화면 표시용)
-    result: TranscriptResult | None = None  # status 가 done 일 때만 채워진다
-    error: str | None = None

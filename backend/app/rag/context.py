@@ -15,6 +15,7 @@ CONTEXT_AFTER = 1
 
 @dataclass(frozen=True)
 class Target:
+    index: int  # 입력 구간 목록에서의 번호. 1차 선별로 일부만 남아도 원래 구간을 가리킨다.
     segment: Segment
     before: list[str]
     after: list[str]
@@ -39,6 +40,7 @@ def with_context(segments: list[Segment]) -> list[Target]:
         after = same_source[position + 1 : position + 1 + CONTEXT_AFTER]
         targets.append(
             Target(
+                index=index,
                 segment=segment,
                 before=[segments[i].text for i in before],
                 after=[segments[i].text for i in after],
