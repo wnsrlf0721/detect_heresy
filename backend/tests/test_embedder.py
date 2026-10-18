@@ -55,3 +55,14 @@ def test_other_errors_are_not_retried(monkeypatch):
         embedder.embed(["문장"], "query")
     assert len(calls) == 1
     assert sleeps == []
+
+
+def test_batches_respect_count_and_character_limits():
+    texts = ["가" * 4, "나" * 4, "다" * 4, "라" * 9, "마"]
+    assert embedder_module._batches(texts, max_count=2, max_chars=10) == [
+        ["가" * 4, "나" * 4],
+        ["다" * 4],
+        ["라" * 9, "마"],
+    ]
+    # 한도보다 긴 텍스트 하나는 혼자 보낸다.
+    assert embedder_module._batches(["가" * 20, "나"], max_count=10, max_chars=10) == [["가" * 20], ["나"]]
