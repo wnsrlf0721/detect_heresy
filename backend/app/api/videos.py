@@ -1,12 +1,13 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 
 from app.api.deps import (
     get_analysis_version,
     get_engine,
     get_pipeline,
+    get_preview_source,
     get_related_min_similarity,
     get_repository,
     get_topic_service,
@@ -15,10 +16,12 @@ from app.db.repository import Repository, StoredTranscript
 from app.errors import AnalysisError
 from app.media import youtube_video_id
 from app.media.pipeline import TranscriptPipeline
+from app.media.preview import PreviewSource, VideoNotFound
 from app.rag.engine import AnalysisEngine
 from app.rag.topic import TopicService
 from app.schemas.analysis import JobStatus
-from app.schemas.video import VideoRequest, VideoResponse
+from app.schemas.transcript import check_youtube_url
+from app.schemas.video import VideoPreview, VideoRequest, VideoResponse
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
@@ -106,6 +109,28 @@ def create_video(
     repository.create_video_analysis(job, video_id, version)
     background.add_task(run_video, job, video_id, saved, pipeline, engine, topics, repository)
     return job
+
+
+# /{job_id} 보다 먼저 등록해야 "preview" 가 작업 ID로 잡히지 않는다.
+@router.get("/preview", response_model=VideoPreview)
+def preview_video(
+    url: str = Query(max_length=500),
+    source: PreviewSource = Depends(get_preview_source),
+) -> VideoPreview:
+    """분석 전에 주소가 맞는 영상인지 확인한다. 화면이 주소를 입력할 때마다 부른다."""
+    try:
+        check_youtube_url(url)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    video_id = youtube_video_id(url)
+    if video_id is None:
+        raise HTTPException(status_code=422, detail="유튜브 영상 주소에서 영상을 찾지 못했습니다.")
+    try:
+        return source.lookup(video_id)
+    except VideoNotFound as e:
+        raise HTTPException(status_code=404, detail="영상이 없거나 비공개 영상입니다.") from e
+    except AnalysisError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/{job_id}", response_model=VideoResponse)

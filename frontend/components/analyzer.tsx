@@ -4,16 +4,19 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   AnalysisResult,
+  ApiError,
   createAnalysis,
   createVideo,
   formatDate,
   getAnalysis,
   getVideo,
+  getVideoPreview,
   JobStatus,
   Segment,
   SOURCE_LABEL,
   toSeconds,
   TranscriptResult,
+  VideoPreview,
   VideoResponse,
   VideoSource,
   youtubeId,
@@ -25,6 +28,8 @@ type Phase = "idle" | "extracting" | "analyzing" | "done" | "error";
 
 const VIDEO_SOURCES: VideoSource[] = ["caption", "stt", "ocr"];
 const POLL_MS = 2000;
+// 주소를 입력하는 동안에는 확인하지 않고, 입력이 멈추면 한 번 확인한다.
+const PREVIEW_DELAY_MS = 500;
 // POST /analyses 가 한 번에 받는 구간 수 (backend AnalysisRequest.segments 의 max_length)
 const MAX_SEGMENTS = 500;
 
@@ -43,6 +48,74 @@ async function waitFor<T extends { id: string; status: JobStatus }>(
     onUpdate(job);
   }
   return isCurrent() ? job : null;
+}
+
+type Preview =
+  | { state: "checking"; url: string }
+  | { state: "found"; url: string; video: VideoPreview }
+  | { state: "missing"; url: string; message: string } // 잘못된 주소이거나 영상이 없다
+  | { state: "error"; url: string; message: string }; // 확인하지 못했다 (분석은 해 볼 수 있다)
+
+/** 입력한 주소가 볼 수 있는 유튜브 영상인지 확인한다. 주소가 비어 있으면 null 이다. */
+function usePreview(url: string): Preview | null {
+  const [preview, setPreview] = useState<Preview | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setPreview({ state: "checking", url });
+      try {
+        const video = await getVideoPreview(url, controller.signal);
+        if (!controller.signal.aborted) setPreview({ state: "found", url, video });
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        const message = e instanceof Error ? e.message : "영상을 확인하지 못했습니다.";
+        const missing = e instanceof ApiError && (e.status === 404 || e.status === 422);
+        setPreview({ state: missing ? "missing" : "error", url, message });
+      }
+    }, PREVIEW_DELAY_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [url]);
+  // 주소가 바뀐 직후에는 이전 주소의 결과를 보여 주지 않는다.
+  return url && preview?.url === url ? preview : null;
+}
+
+function PreviewBox({ preview }: { preview: Preview }) {
+  if (preview.state === "checking") {
+    return <p className="text-sm text-zinc-500">영상을 확인하는 중…</p>;
+  }
+  if (preview.state !== "found") {
+    return (
+      <p className={`text-sm ${preview.state === "missing" ? "text-red-700" : "text-amber-700"}`}>
+        {preview.state === "missing" ? "✕ " : "! "}
+        {preview.message}
+      </p>
+    );
+  }
+  const { video } = preview;
+  return (
+    <div className="max-w-sm">
+      <p className="text-sm text-emerald-700">✓ 영상을 찾았습니다</p>
+      {video.embeddable ? (
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${video.video_id}`}
+          title={video.title ?? "영상 미리보기"}
+          allow="encrypted-media; picture-in-picture"
+          allowFullScreen
+          className="mt-2 aspect-video w-full rounded-lg border border-zinc-200"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- 외부 썸네일 한 장이라 next/image 설정을 두지 않는다.
+        <img src={video.thumbnail_url} alt="" className="mt-2 aspect-video w-full rounded-lg border border-zinc-200 object-cover" />
+      )}
+      {video.title && <p className="mt-2 text-sm font-medium leading-5">{video.title}</p>}
+      {video.author && <p className="text-xs text-zinc-500">{video.author}</p>}
+      {!video.embeddable && <p className="mt-1 text-xs text-zinc-500">퍼가기가 막힌 영상이라 여기서는 재생할 수 없습니다.</p>}
+    </div>
+  );
 }
 
 function useElapsed(running: boolean): number {
@@ -92,6 +165,7 @@ export function Analyzer() {
   const runId = useRef(0);
   const busy = phase === "extracting" || phase === "analyzing";
   const elapsed = useElapsed(busy);
+  const preview = usePreview(mode === "video" ? url.trim() : "");
 
   async function runText(run: number) {
     const segments: Segment[] = text
@@ -188,7 +262,12 @@ export function Analyzer() {
     document.getElementById(`finding-${index}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  const canSubmit = !busy && (mode === "video" ? url.trim() !== "" && included.length > 0 : text.trim() !== "");
+  const canSubmit =
+    !busy &&
+    (mode === "video" ? url.trim() !== "" && included.length > 0 && preview?.state !== "missing" : text.trim() !== "");
+  // 아래 결과에 같은 영상의 플레이어가 이미 있으면 미리보기는 숨긴다.
+  const showPreview =
+    preview !== null && !busy && !(preview.state === "found" && preview.video.video_id === videoId && (transcript || result));
   const playerSrc = videoId
     ? `https://www.youtube-nocookie.com/embed/${videoId}` + (startAt !== null ? `?start=${startAt}&autoplay=1` : "")
     : null;
@@ -277,6 +356,12 @@ export function Analyzer() {
         >
           {busy ? "분석 중…" : "분석 시작"}
         </button>
+
+        {mode === "video" && showPreview && (
+          <div className="mt-4 border-t border-zinc-100 pt-4" aria-live="polite">
+            <PreviewBox preview={preview} />
+          </div>
+        )}
       </form>
 
       {busy && (

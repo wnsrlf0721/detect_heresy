@@ -88,6 +88,24 @@ export interface VideoResponse {
   error: string | null;
 }
 
+export interface VideoPreview {
+  video_id: string;
+  title: string | null;
+  author: string | null;
+  thumbnail_url: string;
+  embeddable: boolean;
+}
+
+/** 서버가 응답한 실패. 서버에 닿지 못한 실패는 그냥 Error 다. */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -102,7 +120,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await response.json().catch(() => null);
     const detail = body?.detail;
     const message = Array.isArray(detail) ? detail.map((d) => d.msg).join(" ") : detail;
-    throw new Error(message || `요청이 실패했습니다 (${response.status}).`);
+    throw new ApiError(message || `요청이 실패했습니다 (${response.status}).`, response.status);
   }
   return response.json();
 }
@@ -122,6 +140,11 @@ export function createVideo(url: string, sources: VideoSource[], force = false):
 
 export function getVideo(id: string): Promise<VideoResponse> {
   return request(`/videos/${id}`);
+}
+
+/** 분석 전에 주소가 맞는 영상인지 확인한다. 주소가 잘못되면 422, 영상이 없거나 비공개면 404 다. */
+export function getVideoPreview(url: string, signal?: AbortSignal): Promise<VideoPreview> {
+  return request(`/videos/preview?url=${encodeURIComponent(url)}`, { signal });
 }
 
 export function formatDate(iso: string): string {

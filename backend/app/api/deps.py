@@ -5,6 +5,7 @@ from app.db.repository import PgRepository, Repository
 from app.media.downloader import YtDlpSource
 from app.media.ocr import EasyOcrReader, VisionFrameReader
 from app.media.pipeline import TranscriptPipeline
+from app.media.preview import OEmbedPreview
 from app.media.stt import OpenAITranscriber, WhisperTranscriber
 from app.rag.embedder import VoyageEmbedder
 from app.rag.engine import AnalysisEngine
@@ -49,6 +50,11 @@ def get_related_min_similarity() -> float:
 @lru_cache
 def get_repository() -> Repository:
     return PgRepository(get_settings().database_url)
+
+
+@lru_cache
+def get_preview_source() -> OEmbedPreview:
+    return OEmbedPreview()
 
 
 @lru_cache

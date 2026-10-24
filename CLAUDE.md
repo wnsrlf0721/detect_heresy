@@ -21,6 +21,7 @@
 ## API
 - POST /analyses, GET /analyses/{id} : 화면의 텍스트 직접 입력이 쓰는 판별 API. POST 는 pending 으로 바로 응답하고 FastAPI BackgroundTasks 로 처리한다. Celery + Redis 는 아직 쓰지 않는다.
 - POST /videos, GET /videos/{id} : 화면의 영상 분석이 쓰는 API. 추출 → 판별 → 대주제 정리를 한 작업으로 처리한다. 같은 영상 ID·출처·판별 버전(app/rag/version.py)이면 저장된 결과를 cached 로 바로 돌려주고, 버전만 다르면 추출한 텍스트를 재사용해 판별만 다시 한다. force 면 추출부터 다시 한다.
+- GET /videos/preview?url= : 화면이 주소 입력이 멈출 때마다 불러 영상 유무와 미리보기(제목·썸네일·재생 가능 여부)를 보여 준다. 유튜브 oEmbed(API 키 없음, app/media/preview.py)를 쓰며, 잘못된 주소는 422, 없거나 비공개 영상은 404 다. 화면은 이 두 경우 분석 시작을 막는다.
 - 판별 버전은 data/orthodox·heresy YAML, 판별 프롬프트(prompts.ANALYSIS_PROMPT_FILES), 모델 설정, engine.py 의 ENGINE_REVISION 으로 만든다. 판별 결과가 달라지는 엔진 코드 변경을 하면 ENGINE_REVISION 을 올린다.
 - 대주제는 Haiku(llm.py 의 ClaudeTopicWriter, prompts/topic_system.md)가 정리하고 Voyage 로 임베딩해 저장한다. GET 할 때마다 유사도 RELATED_MIN_SIMILARITY 이상인 다른 영상을 related 로 찾는다. 대주제는 화면 연결용이며 판별 근거로 LLM에 넘기지 않는다.
 - 작업은 BackgroundTasks(서버 프로세스 안)에서 돌므로, 서버가 뜰 때 pending/running 작업을 모두 failed 로 바꾼다(app.db.fail_interrupted_jobs).

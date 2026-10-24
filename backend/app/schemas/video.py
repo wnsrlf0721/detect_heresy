@@ -37,6 +37,16 @@ class VideoRequest(BaseModel):
         return sorted(set(value))
 
 
+class VideoPreview(BaseModel):
+    """분석 전에 입력한 주소가 맞는 영상인지 보여 주는 정보."""
+
+    video_id: str
+    title: str | None = None  # 퍼가기가 막힌 영상은 제목을 알 수 없다
+    author: str | None = None
+    thumbnail_url: str
+    embeddable: bool  # false 면 화면에서 재생하지 못하고 썸네일만 보여 준다
+
+
 class VideoTopic(BaseModel):
     title: str  # 대주제 한 줄
     summary: str
