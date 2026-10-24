@@ -21,7 +21,7 @@ import {
   VideoSource,
   youtubeId,
 } from "@/lib/api";
-import { FindingCard, Gauge, RelatedList, Timeline, TopicPanel, TranscriptPanel } from "@/components/result";
+import { FindingCard, Gauge, RelatedList, ThinkingLog, Timeline, TopicPanel, TranscriptPanel } from "@/components/result";
 
 type Mode = "video" | "text";
 type Phase = "idle" | "extracting" | "analyzing" | "done" | "error";
@@ -129,7 +129,7 @@ function useElapsed(running: boolean): number {
   return seconds;
 }
 
-function Step({ label, state, detail }: { label: string; state: "wait" | "run" | "done"; detail?: string }) {
+function Step({ label, state }: { label: string; state: "wait" | "run" | "done" }) {
   return (
     <li className="flex items-center gap-3">
       <span
@@ -140,7 +140,6 @@ function Step({ label, state, detail }: { label: string; state: "wait" | "run" |
         {state === "done" ? "✓" : state === "run" ? <span className="h-2 w-2 animate-ping rounded-full bg-white" /> : ""}
       </span>
       <span className={state === "wait" ? "text-zinc-400" : "text-zinc-900"}>{label}</span>
-      {detail && <span className="text-sm text-zinc-500">{detail}</span>}
     </li>
   );
 }
@@ -152,7 +151,7 @@ export function Analyzer() {
   const [included, setIncluded] = useState<VideoSource[]>(VIDEO_SOURCES);
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState<string | null>(null);
+  const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [video, setVideo] = useState<VideoResponse | null>(null);
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
@@ -177,7 +176,12 @@ export function Analyzer() {
       throw new Error(`구간이 ${segments.length}개로 너무 많습니다. (최대 ${MAX_SEGMENTS}개)`);
     }
     setPhase("analyzing");
-    const analysis = await waitFor(await createAnalysis(segments), getAnalysis, () => run === runId.current);
+    const analysis = await waitFor(
+      await createAnalysis(segments),
+      getAnalysis,
+      () => run === runId.current,
+      (job) => setLog(job.log),
+    );
     if (!analysis) return;
     if (analysis.status !== "done" || !analysis.result) {
       throw new Error(analysis.error ?? "판별에 실패했습니다.");
@@ -186,7 +190,8 @@ export function Analyzer() {
     setPhase("done");
   }
 
-  /** 추출부터 대주제 정리까지 한 작업이다. 같은 영상의 저장된 분석이 있으면 바로 끝난다. */
+  /** 추출 → 요약과 판별까지 한 작업이다. 같은 영상의 저장된 분석이 있으면 바로 끝난다.
+   * 추출이 끝나면 합친 텍스트를, 요약이 끝나면 요약을 판별 결과보다 먼저 보여 준다. */
   async function runVideo(run: number, force: boolean) {
     setPhase("extracting");
     const job = await waitFor(
@@ -194,7 +199,8 @@ export function Analyzer() {
       getVideo,
       () => run === runId.current,
       (job) => {
-        setProgress(job.progress);
+        setLog(job.log);
+        setVideo(job);
         if (job.transcript) {
           setTranscript(job.transcript);
           setPhase("analyzing");
@@ -212,7 +218,7 @@ export function Analyzer() {
 
   function reset(): number {
     setError(null);
-    setProgress(null);
+    setLog([]);
     setVideo(null);
     setTranscript(null);
     setResult(null);
@@ -244,6 +250,7 @@ export function Analyzer() {
       setIncluded(job.sources);
       setVideoId(youtubeId(job.url));
       setVideo({ ...job, cached: true });
+      setLog(job.log);
       setTranscript(job.transcript);
       setResult(job.result);
       setPhase("done");
@@ -364,35 +371,13 @@ export function Analyzer() {
         )}
       </form>
 
-      {busy && (
-        <section className="rounded-2xl border border-zinc-200 bg-white p-6" aria-live="polite">
-          <ol className="space-y-3">
-            {mode === "video" && (
-              <Step
-                label="영상에서 텍스트 추출"
-                state={phase === "extracting" ? "run" : "done"}
-                detail={phase === "extracting" ? (progress ?? "대기 중") : undefined}
-              />
-            )}
-            <Step
-              label="정통 교리와 비교해 판별"
-              state={phase === "analyzing" ? "run" : "wait"}
-              detail={phase === "analyzing" ? (progress ?? undefined) : undefined}
-            />
-          </ol>
-          <p className="mt-4 text-sm text-zinc-500">
-            {Math.floor(elapsed / 60)}분 {elapsed % 60}초 경과 · 몇 분짜리 영상이면 1~2분쯤 걸립니다. 창을 닫지 마세요.
-          </p>
-        </section>
-      )}
-
       {error && (
         <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">
           {error}
         </p>
       )}
 
-      {(transcript || result) && (
+      {(busy || transcript || result) && (
         <div className="space-y-6">
           {transcript && (
             <section className="rounded-2xl border border-zinc-200 bg-white p-6">
@@ -428,7 +413,26 @@ export function Analyzer() {
             </section>
           )}
 
-          {video?.topic && <TopicPanel topic={video.topic} />}
+          {/* 요약은 판별보다 먼저 끝나므로, 판별을 기다리는 동안 읽을 수 있다. */}
+          {transcript && (video?.topic || busy) && <TopicPanel topic={video?.topic ?? null} />}
+
+          {busy && (
+            <section className="rounded-2xl border border-zinc-200 bg-white p-6" aria-live="polite">
+              <ol className="space-y-3">
+                {mode === "video" && (
+                  <Step label="영상에서 텍스트 추출" state={phase === "extracting" ? "run" : "done"} />
+                )}
+                <Step label="정통 교리와 비교해 이단성 판별" state={phase === "analyzing" ? "run" : "wait"} />
+              </ol>
+              <h3 className="mt-6 text-xs font-semibold text-zinc-500">AI 진행 과정</h3>
+              <div className="mt-2">
+                <ThinkingLog lines={log} running />
+              </div>
+              <p className="mt-4 text-sm text-zinc-500">
+                {Math.floor(elapsed / 60)}분 {elapsed % 60}초 경과 · 몇 분짜리 영상이면 1~2분쯤 걸립니다. 창을 닫지 마세요.
+              </p>
+            </section>
+          )}
 
           {result && (
             <>
@@ -454,17 +458,29 @@ export function Analyzer() {
             </>
           )}
 
-          {video?.topic && <RelatedList related={video.related} onOpen={openVideo} />}
+          {result && video?.topic && <RelatedList related={video.related} onOpen={openVideo} />}
 
           {transcript && (
             <TranscriptPanel
               segments={transcript.segments}
+              merged={transcript.merged}
               findings={result?.findings ?? []}
               included={video?.sources ?? included}
               onSeek={videoId ? setStartAt : null}
             />
           )}
         </div>
+      )}
+
+      {!busy && log.length > 0 && (
+        <details className="rounded-2xl border border-zinc-200 bg-white p-6">
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-500 hover:text-zinc-800">
+            AI 진행 과정 {log.length}단계 보기
+          </summary>
+          <div className="mt-4">
+            <ThinkingLog lines={log} running={false} />
+          </div>
+        </details>
       )}
     </div>
   );

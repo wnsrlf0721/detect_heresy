@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 import {
   AnalysisResult,
   Finding,
@@ -202,67 +204,188 @@ export function FindingCard({
   );
 }
 
-/** 영상에서 추출한 텍스트를 출처별로 나란히 보여 준다. 적발된 구간은 색으로 표시한다. */
+const SPEECH: Source[] = ["caption", "stt"];
+
+/** 적발 하나가 합친 텍스트의 어느 줄에 해당하는지. 자막을 쓴 영상에서 음성으로 적발된 발언은 그 시각의 자막 줄로 잇는다. */
+function mergedLineOf(finding: Finding, merged: Segment[]): number {
+  const exact = merged.findIndex((segment) => segment.source === finding.source && segment.time === finding.time);
+  const seconds = toSeconds(finding.time);
+  if (exact !== -1 || !SPEECH.includes(finding.source) || seconds === null) return exact;
+  let line = -1;
+  merged.forEach((segment, index) => {
+    const at = toSeconds(segment.time);
+    if (SPEECH.includes(segment.source) && at !== null && at <= seconds) line = index;
+  });
+  return line;
+}
+
+function SegmentLine({
+  segment,
+  score,
+  onSeek,
+  badge,
+}: {
+  segment: Segment;
+  score: number | undefined;
+  onSeek: ((seconds: number) => void) | null;
+  badge?: string;
+}) {
+  const tone = score === undefined ? null : TONE[verdictOf(score)];
+  const seconds = toSeconds(segment.time);
+  return (
+    <li className={`flex gap-2 rounded-md px-2 py-1 ${tone ? `${tone.bg} ${tone.text}` : ""}`}>
+      {onSeek && seconds !== null ? (
+        <button type="button" onClick={() => onSeek(seconds)} className="shrink-0 tabular-nums text-zinc-400 hover:text-zinc-900">
+          {segment.time}
+        </button>
+      ) : (
+        <span className="shrink-0 tabular-nums text-zinc-400">{segment.time}</span>
+      )}
+      <span className="leading-6">
+        {badge && <span className="mr-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-xs text-sky-700">{badge}</span>}
+        {segment.text}
+      </span>
+    </li>
+  );
+}
+
+/** 영상에서 추출한 텍스트. 기본은 세 출처를 합친 텍스트이고, 출처별 원문도 볼 수 있다. 적발된 구간은 색으로 표시한다. */
 export function TranscriptPanel({
   segments,
+  merged,
   findings,
   included,
   onSeek,
 }: {
   segments: Segment[];
+  merged: Segment[];
   findings: Finding[];
   included: Source[];
   onSeek: ((seconds: number) => void) | null;
 }) {
+  const [view, setView] = useState<"merged" | "sources">("merged");
   const flagged = new Map(findings.map((finding) => [`${finding.source}|${finding.time}`, finding.score]));
+  const mergedScores = new Map<number, number>();
+  for (const finding of findings) {
+    const line = mergedLineOf(finding, merged);
+    if (line !== -1) mergedScores.set(line, Math.max(finding.score, mergedScores.get(line) ?? 0));
+  }
+  const speech = merged.find((segment) => SPEECH.includes(segment.source))?.source;
   const sources: Source[] = ["caption", "stt", "ocr"];
+
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-6">
-      <h2 className="text-sm font-semibold text-zinc-500">영상에서 추출한 텍스트</h2>
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        {sources.map((source) => {
-          const items = segments.filter((segment) => segment.source === source);
-          return (
-            <div key={source} className="rounded-xl border border-zinc-200">
-              <h3 className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 text-sm font-semibold">
-                <span>
-                  {SOURCE_LABEL[source]} <span className="font-normal text-zinc-400">{items.length}구간</span>
-                </span>
-                {!included.includes(source) && <span className="text-xs font-normal text-zinc-400">판별 제외</span>}
-              </h3>
-              <ol className="max-h-96 space-y-1 overflow-y-auto p-2 text-sm">
-                {items.length === 0 && <li className="p-2 text-zinc-400">추출된 텍스트가 없습니다.</li>}
-                {items.map((segment, index) => {
-                  const score = flagged.get(`${segment.source}|${segment.time}`);
-                  const tone = score === undefined ? null : TONE[verdictOf(score)];
-                  const seconds = toSeconds(segment.time);
-                  return (
-                    <li key={index} className={`flex gap-2 rounded-md px-2 py-1 ${tone ? `${tone.bg} ${tone.text}` : ""}`}>
-                      {onSeek && seconds !== null ? (
-                        <button type="button" onClick={() => onSeek(seconds)} className="shrink-0 tabular-nums text-zinc-400 hover:text-zinc-900">
-                          {segment.time}
-                        </button>
-                      ) : (
-                        <span className="shrink-0 tabular-nums text-zinc-400">{segment.time}</span>
-                      )}
-                      <span className="leading-6">{segment.text}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
-          );
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-zinc-500">영상 텍스트</h2>
+        <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 text-xs font-medium">
+          {(["merged", "sources"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setView(value)}
+              className={`rounded-md px-3 py-1 ${view === value ? "bg-white shadow-sm" : "text-zinc-500 hover:text-zinc-800"}`}
+            >
+              {value === "merged" ? "합친 텍스트" : "출처별 원문"}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {view === "merged" ? (
+        <>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">
+            자막·음성·화면 글자에서 겹치는 내용을 하나로 합쳤습니다. 말은 {speech ? SOURCE_LABEL[speech] : "자막(없으면 음성)"}을
+            따르고, 화면 글자는 말과 겹치지 않는 것만 실었습니다.
+          </p>
+          <ol className="mt-3 max-h-[28rem] space-y-1 overflow-y-auto rounded-xl border border-zinc-200 p-2 text-sm">
+            {merged.length === 0 && <li className="p-2 text-zinc-400">추출된 텍스트가 없습니다.</li>}
+            {merged.map((segment, index) => (
+              <SegmentLine
+                key={index}
+                segment={segment}
+                score={mergedScores.get(index)}
+                onSeek={onSeek}
+                badge={SPEECH.includes(segment.source) ? undefined : SOURCE_LABEL[segment.source]}
+              />
+            ))}
+          </ol>
+        </>
+      ) : (
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          {sources.map((source) => {
+            const items = segments.filter((segment) => segment.source === source);
+            return (
+              <div key={source} className="rounded-xl border border-zinc-200">
+                <h3 className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 text-sm font-semibold">
+                  <span>
+                    {SOURCE_LABEL[source]} <span className="font-normal text-zinc-400">{items.length}구간</span>
+                  </span>
+                  {!included.includes(source) && <span className="text-xs font-normal text-zinc-400">판별 제외</span>}
+                </h3>
+                <ol className="max-h-96 space-y-1 overflow-y-auto p-2 text-sm">
+                  {items.length === 0 && <li className="p-2 text-zinc-400">추출된 텍스트가 없습니다.</li>}
+                  {items.map((segment, index) => (
+                    <SegmentLine
+                      key={index}
+                      segment={segment}
+                      score={flagged.get(`${segment.source}|${segment.time}`)}
+                      onSeek={onSeek}
+                    />
+                  ))}
+                </ol>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
-/** 영상 대주제. 비슷한 주제의 이전 분석을 찾는 기준이다. */
-export function TopicPanel({ topic }: { topic: VideoTopic }) {
+/** 적발을 알린 줄("… (85점)")은 점수에 맞는 색으로 보여 준다. */
+function logTone(line: string): string | null {
+  const score = line.match(/\((\d+)점\)$/);
+  return score ? TONE[verdictOf(Number(score[1]))].text : null;
+}
+
+/** AI 진행 과정. 추출과 판별에서 실제로 한 일이 한 줄씩 쌓인다. 진행 중이면 마지막 줄이 지금 하는 일이다. */
+export function ThinkingLog({ lines, running }: { lines: string[]; running: boolean }) {
+  const list = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (running) list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
+  }, [lines.length, running]);
+
+  if (lines.length === 0) {
+    return running ? <p className="animate-pulse text-sm text-zinc-500">작업을 준비하는 중입니다…</p> : null;
+  }
+  return (
+    <ol ref={list} className="max-h-72 space-y-1.5 overflow-y-auto border-l-2 border-zinc-200 pl-4 text-sm leading-6">
+      {lines.map((line, index) => {
+        const current = running && index === lines.length - 1;
+        return (
+          <li key={index} className={`animate-log-in ${logTone(line) ?? (current ? "text-zinc-900" : "text-zinc-500")}`}>
+            {current && <span className="mr-2 inline-block h-2 w-2 animate-ping rounded-full bg-zinc-900 align-middle" />}
+            <span className={current ? "animate-pulse" : ""}>{line}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** 영상 요약. 판별보다 먼저 나와서 결과를 기다리는 동안 읽을 수 있다. 비슷한 주제의 이전 분석을 찾는 기준이기도 하다. */
+export function TopicPanel({ topic }: { topic: VideoTopic | null }) {
+  if (!topic) {
+    return (
+      <section className="rounded-2xl border border-zinc-200 bg-white p-6" aria-busy="true">
+        <h2 className="text-sm font-semibold text-zinc-500">영상 요약</h2>
+        <p className="mt-2 animate-pulse text-zinc-500">AI가 영상 내용을 요약하는 중입니다…</p>
+      </section>
+    );
+  }
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-6">
-      <h2 className="text-sm font-semibold text-zinc-500">영상 대주제</h2>
+      <h2 className="text-sm font-semibold text-zinc-500">영상 요약</h2>
       <p className="mt-2 text-lg font-semibold">{topic.title}</p>
       <p className="mt-2 leading-7 text-zinc-700">{topic.summary}</p>
       <ul className="mt-3 flex flex-wrap gap-2 text-sm">

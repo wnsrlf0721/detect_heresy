@@ -218,19 +218,36 @@ def test_only_selected_segments_are_analyzed(embedder, store):
     assert "<after>발언 4</after>" in user
     # 선별된 구간 순서(3, 25)대로 번호가 매겨진다.
     assert [(f.time, f.quote) for f in result.findings] == [("00:25", "발언 25")]
-    assert progress == ["구간 30개 중 의심 구간을 고르는 중", "구간 2개를 정통 교리와 비교하는 중"]
+    # 진행 과정에는 실제로 한 일이 순서대로 남는다.
+    assert progress[:3] == [
+        "구간이 30개로 많아, 교리를 다루는 발언을 먼저 고르는 중입니다.",
+        "교리와 관련 있어 보이는 구간 2개를 골랐습니다.",
+        "구간 2개를 앞뒤 문맥과 함께 기준 자료에서 찾는 중입니다.",
+    ]
+    assert progress[3].startswith("검색 결과: 비슷한 기준 자료 ")
+    assert progress[4:] == [
+        "[00:25] “발언 25” — 신천지의 가르침과 닮았습니다 (80점)",
+        "판별을 마쳤습니다. 의심 발언 1건, 종합 의심 지수 80점(위험).",
+    ]
 
 
 def test_nothing_selected_skips_detailed_analysis(embedder, store):
-    result, analyzer, _, _ = screened(embedder, store, LONG, [])
+    result, analyzer, _, progress = screened(embedder, store, LONG, [])
     assert analyzer.calls == []
     assert (result.verdict, result.summary) == (Verdict.SAFE, NOTHING_TO_ANALYZE)
+    assert progress[-1] == NOTHING_TO_ANALYZE
 
 
 def test_screening_failure_falls_back_to_all_segments(embedder, store):
-    _, analyzer, _, _ = screened(embedder, store, LONG, AnalysisError("요청 한도 초과"))
+    _, analyzer, _, progress = screened(embedder, store, LONG, AnalysisError("요청 한도 초과"))
     analyzed = sum(user.count("<text>") for _, user in analyzer.calls)
     assert analyzed == len(LONG)
+    assert "1차 선별 일부가 실패해, 그 구간 30개는 빠짐없이 정밀 분석합니다." in progress
+    # 정밀 분석이 두 번에 나뉘면 묶음마다 결과를 알린다.
+    assert [p for p in progress if p.endswith("발언을 찾지 못했습니다.")] == [
+        "묶음 1/2: 정통 교리에서 벗어난 발언을 찾지 못했습니다.",
+        "묶음 2/2: 정통 교리에서 벗어난 발언을 찾지 못했습니다.",
+    ]
 
 
 def test_short_input_is_not_screened(embedder, store):

@@ -78,5 +78,6 @@ class AnalysisResponse(BaseModel):
 
     id: str
     status: JobStatus
+    log: list[str] = []  # 진행 과정. 판별에서 실제로 한 일을 한 줄씩 (화면 표시용)
     result: AnalysisResult | None = None  # status 가 done 일 때만 채워진다
     error: str | None = None

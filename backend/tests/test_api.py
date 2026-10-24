@@ -54,6 +54,7 @@ def test_create_then_get_analysis(make_client):
         "references": None,
     }
     assert body["result"]["findings"][0]["references"][0]["id"] == "scj-promised-pastor"
+    assert body["log"][-1] == "판별을 마쳤습니다. 의심 발언 1건, 종합 의심 지수 80점(위험)."
 
 
 def test_text_is_saved_as_transcript_without_video(make_client):

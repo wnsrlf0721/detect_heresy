@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -279,3 +280,65 @@ def test_invalid_request_is_422(make_client, body):
 )
 def test_youtube_video_id(url, video_id):
     assert youtube_video_id(url) == video_id
+
+
+def test_log_records_each_step_and_merged_text(make_client):
+    client = make_client([llm_finding(segment_index=0, quote="약속의 목자", score=85)])
+
+    _, body = analyze(client, VIDEO_A)
+
+    log = body["log"]
+    assert log[:3] == ["영상을 내려받는 중입니다.", "‘보혜사 강의 1’ 영상(4분 0초)을 내려받았습니다.", "영상에 딸린 자막에서 1구간을 가져왔습니다."]
+    assert "자막·음성·화면 글자에서 겹치는 내용을 합쳐 1줄로 정리했습니다." in log
+    assert "판별에는 자막 1구간, 음성 1구간을 씁니다." in log
+    assert f"영상 요약을 정리했습니다: {TOPICS['보혜사 강의 1']}" in log
+    assert "[00:10] “약속의 목자” — 신천지의 가르침과 닮았습니다 (85점)" in log
+    assert log[-1] == "판별을 마쳤습니다. 의심 발언 1건, 종합 의심 지수 85점(위험)."
+    # 자막과 음성은 같은 말이라, 합친 텍스트에는 자막만 남는다.
+    assert [(s["time"], s["source"]) for s in body["transcript"]["merged"]] == [("00:10", "caption")]
+
+
+class WaitingAnalyzer(FakeAnalyzer):
+    """요약이 저장될 때까지 판별을 붙잡아 두고, 그동안 화면이 받는 응답을 기록한다."""
+
+    def __init__(self, repository):
+        super().__init__(LLMAnalysis(summary="요약", findings=[]))
+        self.repository = repository
+        self.seen: VideoResponse | None = None
+
+    def analyze(self, system, user):
+        (job_id,) = self.repository.analyses
+        deadline = time.monotonic() + 5
+        while (seen := self.repository.get_video_analysis(job_id)).topic is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.seen = seen
+        return super().analyze(system, user)
+
+
+def test_summary_is_shown_while_analysis_runs(make_client, embedder, store):
+    client = make_client()
+    analyzer = WaitingAnalyzer(client.repository)
+    app.dependency_overrides[get_engine] = lambda: AnalysisEngine(embedder, store, analyzer)
+
+    _, body = analyze(client, VIDEO_A)
+
+    assert body["status"] == "done"
+    assert (analyzer.seen.status, analyzer.seen.result) == (JobStatus.RUNNING, None)
+    assert analyzer.seen.topic.title == TOPICS["보혜사 강의 1"]
+    assert analyzer.seen.transcript.merged
+
+
+def test_reused_text_is_noted_in_log(make_client):
+    client = make_client()
+    analyze(client, VIDEO_A)
+
+    _, body = analyze(client, VIDEO_A, sources=["stt"])
+
+    assert body["log"][0] == "이 영상에서 이전에 추출한 텍스트(자막 1구간, 음성 1구간)를 다시 씁니다."
+    assert not any("요약" in line for line in body["log"])  # 요약은 추출 결과마다 한 번만 한다
+
+
+def test_topic_failure_is_noted_in_log(make_client):
+    client = make_client(topic_fail=True)
+    _, body = analyze(client, VIDEO_A)
+    assert "영상 요약을 만들지 못했습니다. 판별은 계속합니다." in body["log"]

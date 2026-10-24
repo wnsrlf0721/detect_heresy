@@ -20,9 +20,11 @@
 
 ## API
 - POST /analyses, GET /analyses/{id} : 화면의 텍스트 직접 입력이 쓰는 판별 API. POST 는 pending 으로 바로 응답하고 FastAPI BackgroundTasks 로 처리한다. Celery + Redis 는 아직 쓰지 않는다.
-- POST /videos, GET /videos/{id} : 화면의 영상 분석이 쓰는 API. 추출 → 판별 → 대주제 정리를 한 작업으로 처리한다. 같은 영상 ID·출처·판별 버전(app/rag/version.py)이면 저장된 결과를 cached 로 바로 돌려주고, 버전만 다르면 추출한 텍스트를 재사용해 판별만 다시 한다. force 면 추출부터 다시 한다.
+- POST /videos, GET /videos/{id} : 화면의 영상 분석이 쓰는 API. 추출 → 대주제(영상 요약) 정리와 판별을 한 작업으로 처리한다. 요약은 판별과 동시에 돌려, 판별을 기다리는 동안 화면에 먼저 보인다. 같은 영상 ID·출처·판별 버전(app/rag/version.py)이면 저장된 결과를 cached 로 바로 돌려주고, 버전만 다르면 추출한 텍스트를 재사용해 판별만 다시 한다. force 면 추출부터 다시 한다.
 - GET /videos/preview?url= : 화면이 주소 입력이 멈출 때마다 불러 영상 유무와 미리보기(제목·썸네일·재생 가능 여부)를 보여 준다. 유튜브 oEmbed(API 키 없음, app/media/preview.py)를 쓰며, 잘못된 주소는 422, 없거나 비공개 영상은 404 다. 화면은 이 두 경우 분석 시작을 막는다.
 - 판별 버전은 data/orthodox·heresy YAML, 판별 프롬프트(prompts.ANALYSIS_PROMPT_FILES), 모델 설정, engine.py 의 ENGINE_REVISION 으로 만든다. 판별 결과가 달라지는 엔진 코드 변경을 하면 ENGINE_REVISION 을 올린다.
+- 영상 텍스트는 세 출처를 나란히 보여 주지 않고 합쳐서 보여 준다(app/media/merge.py, 응답의 transcript.merged). 말은 자막(없으면 음성)을 쓰고, 화면 글자는 근처의 말과 겹치지 않는 것만 남긴다. 합친 텍스트는 화면 표시용이며 판별 입력은 바꾸지 않는다.
+- 진행 과정(analyses.log, 응답의 log)은 추출(pipeline.py)·판별(engine.py)·요약(videos.py)이 on_progress 로 남긴 문장이다. 실제로 한 일(구간 수, 고른 구간, 찾은 기준 자료, 적발)만 적고 LLM 을 따로 부르지 않는다. progress 는 log 의 마지막 줄이다.
 - 대주제는 Haiku(llm.py 의 ClaudeTopicWriter, prompts/topic_system.md)가 정리하고 Voyage 로 임베딩해 저장한다. GET 할 때마다 유사도 RELATED_MIN_SIMILARITY 이상인 다른 영상을 related 로 찾는다. 대주제는 화면 연결용이며 판별 근거로 LLM에 넘기지 않는다.
 - 작업은 BackgroundTasks(서버 프로세스 안)에서 돌므로, 서버가 뜰 때 pending/running 작업을 모두 failed 로 바꾼다(app.db.fail_interrupted_jobs).
 - 판별 엔진 흐름(engine.py): 구간마다 같은 출처의 앞 2개·뒤 1개 구간을 문맥으로 붙인다(rag/context.py) → 구간이 20개를 넘으면 Haiku 가 의심 구간을 먼저 고른다(ClaudeScreener, prompts/filter_system.md. 실패하면 전부 분석) → 문맥 포함 텍스트로 검색 → Opus 판별. 적발은 문맥이 아닌 그 구간의 말만 한다.
@@ -31,7 +33,7 @@
 - DB 저장(app/db/repository.py 의 PgRepository 하나): videos ─ transcripts ─ segments, transcripts ─ analyses ─ findings ─ finding_refs ─ chunks 로 나눠 저장하고, API 응답은 읽을 때 조립한다. 영상 분석과 텍스트 판별이 같은 analyses 테이블을 쓴다(텍스트는 video_id 가 없다). 대주제는 추출 결과(transcripts)마다 한 번 정리한다.
 - 적발(Finding)은 판별에 넘긴 구간 번호(segment_index, 응답에서는 빠짐)로 segments 를 가리킨다. 적발의 시각·출처는 그 구간의 값이다.
 - chunks 는 finding_refs 가 가리키므로 지우지 않는다. ingest 는 같은 id 를 갱신하고 data/ 에서 빠진 것은 active=false 로 검색에서 뺀다.
-- schema.sql 은 CREATE IF NOT EXISTS 뿐이고 마이그레이션 도구가 없다. 테이블 구조를 바꾸면 개발 DB 의 테이블을 지우고 다시 만든 뒤 ingest 를 다시 한다.
+- schema.sql 은 서버가 뜰 때마다 실행되고 마이그레이션 도구가 없다. 칸을 더하는 정도는 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 를 함께 적어 기존 DB 에도 반영되게 하고(analyses.log 처럼), 그 밖에 테이블 구조를 바꾸면 개발 DB 의 테이블을 지우고 다시 만든 뒤 ingest 를 다시 한다.
 - Voyage 는 결제 수단 없는 계정이라 분당 3회·1만 토큰 제한이다. embedder.py 가 요청을 글자 수(MAX_BATCH_CHARS)로 나누고 429 면 기다렸다 재시도한다.
 - 구간의 source(user/stt/ocr/caption)와 time 은 요청부터 결과의 적발 문장까지 그대로 유지한다.
 - LLM에게는 판단만 맡긴다. 시간, 출처, 근거 문서, 종합 점수와 등급은 코드(backend/app/rag/engine.py)가 채운다.
@@ -55,7 +57,7 @@
 - 사람이 원출처와 대조하기 전까지 verified: false 로 둔다. AI가 임의로 true 로 바꾸지 않는다.
 
 ## 규칙
-- 현재 단계: 텍스트 판별, 유튜브 영상 추출, 결과 화면, 영상 분석 저장·재사용, 대주제 연결, 1차 선별(Haiku)까지 연결된 상태다. 워커 큐, 이미지 업로드 OCR, 과거 분석 목록, 피드백 기능은 아직 없다.
+- 현재 단계: 텍스트 판별, 유튜브 영상 추출, 결과 화면, 영상 분석 저장·재사용, 대주제 연결, 1차 선별(Haiku), 합친 영상 텍스트, AI 진행 과정 표시까지 연결된 상태다. 워커 큐, 이미지 업로드 OCR, 과거 분석 목록, 피드백 기능은 아직 없다.
 - LLM 응답은 반드시 JSON 스키마로 검증한다.
 - 프롬프트는 app/prompts/ 아래 별도 파일로 분리한다.
 - API 키는 .env로만 관리하고 커밋하지 않는다.

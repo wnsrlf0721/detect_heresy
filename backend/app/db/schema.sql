@@ -54,13 +54,16 @@ CREATE TABLE IF NOT EXISTS analyses (
     sources       text[] NOT NULL,      -- 판별에 쓴 출처. 정렬된 값 (예: {caption,ocr,stt})
     version       text NOT NULL,        -- app/rag/version.py 의 판별 버전
     status        text NOT NULL,        -- pending / running / done / failed
-    progress      text,                 -- 진행 중인 단계 (화면 표시용)
+    progress      text,                 -- 진행 중인 단계 (화면 표시용). log 의 마지막 줄
+    log           text[] NOT NULL DEFAULT '{}',  -- 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 쌓는다
     error         text,
     verdict       text,                 -- safe / caution / danger. 판별이 끝나면 채운다
     score         integer,              -- 종합 의심 지수 0~100
     summary       text,
     created_at    timestamptz NOT NULL DEFAULT now()
 );
+-- log 칸이 생기기 전에 만든 DB 에도 칸을 더한다. 여러 번 실행해도 안전하다.
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS log text[] NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS analyses_lookup ON analyses (video_id, version, created_at DESC);
 
 -- 적발된 발언 하나. 시각과 출처는 가리키는 구간(segments)의 값이다.

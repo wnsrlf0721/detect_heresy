@@ -2,8 +2,9 @@
 
 from urllib.parse import urlparse
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
+from app.media.merge import merge_sources
 from app.schemas.analysis import Segment
 
 ALLOWED_HOSTS = {"youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com"}
@@ -23,3 +24,9 @@ class TranscriptResult(BaseModel):
     segments: list[Segment]
     # 일부 출처만 실패했을 때의 안내. 나머지 출처의 결과는 그대로 돌려준다.
     warnings: list[str] = []
+
+    @computed_field
+    @property
+    def merged(self) -> list[Segment]:
+        """화면에 보여 주는 합친 텍스트. 세 출처에서 겹치는 내용을 하나로 줄인다(app/media/merge.py)."""
+        return merge_sources(self.segments)

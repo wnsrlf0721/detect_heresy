@@ -152,17 +152,22 @@ def test_video_analysis_roundtrip(database_url):
     assert repository.get_video_analysis(a.id) == a
     assert repository.find_transcript("AAAAAAAAAAA") is None
 
-    repository.set_status(a.id, JobStatus.RUNNING, progress="내려받는 중")
+    repository.set_status(a.id, JobStatus.RUNNING)
+    repository.add_log(a.id, "영상을 내려받는 중입니다.")
+    repository.add_log(a.id, "내려받는 중")
     stored = repository.save_transcript(a.id, "AAAAAAAAAAA", transcript)
     running = repository.find_video_analysis("AAAAAAAAAAA", a.sources, "v1")  # 진행 중인 작업도 찾는다
     assert (running.status, running.progress, running.transcript, running.result) == ("running", "내려받는 중", transcript, None)
+    assert running.log == ["영상을 내려받는 중입니다.", "내려받는 중"]
     found = repository.find_transcript("AAAAAAAAAAA")
     assert (found.id, found.result, found.segment_ids, found.topic) == (stored.id, transcript, stored.segment_ids, None)
 
     repository.save_result(a.id, result, stored.segment_ids)
     repository.save_topic(stored.id, topic, _vector(0))
     repository.set_status(a.id, JobStatus.DONE)
-    a = a.model_copy(update={"status": JobStatus.DONE, "transcript": transcript, "result": result, "topic": topic})
+    a = a.model_copy(
+        update={"status": JobStatus.DONE, "transcript": transcript, "result": result, "topic": topic, "log": running.log}
+    )
     assert repository.get_video_analysis(a.id) == a
     assert repository.find_video_analysis("AAAAAAAAAAA", a.sources, "v1") == a
     assert repository.find_video_analysis("AAAAAAAAAAA", a.sources, "v2") is None

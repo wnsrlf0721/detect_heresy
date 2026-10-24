@@ -86,7 +86,14 @@ def test_pipeline_combines_three_sources_for_analysis():
 
     assert result.title == "제목" and result.duration == 240
     assert [s.source for s in result.segments] == ["caption", "stt", "ocr"]
-    assert len(stages) == 2
+    assert stages == [
+        "영상을 내려받는 중입니다.",
+        "‘제목’ 영상(4분 0초)을 내려받았습니다.",
+        "영상에 딸린 자막에서 1구간을 가져왔습니다.",
+        "음성을 받아쓰고 화면 글자를 읽는 중입니다.",
+        "음성 인식으로 1구간을 받아썼습니다.",
+        "화면에서 글자 1구간을 읽었습니다.",
+    ]
     AnalysisRequest(segments=result.segments)  # 그대로 판별 요청이 된다
 
 
@@ -94,10 +101,13 @@ def test_pipeline_keeps_other_sources_when_one_fails():
     pipeline = TranscriptPipeline(
         FakeSource(warnings=["이 영상에는 한국어 자막이 없습니다."]), FakeStep([STT]), FakeStep(RuntimeError("모델 오류"))
     )
-    result = pipeline.run(URL)
+    stages = []
+    result = pipeline.run(URL, stages.append)
 
     assert result.segments == [STT]
     assert result.warnings == ["이 영상에는 한국어 자막이 없습니다.", "화면 글자 인식에 실패했습니다: 모델 오류"]
+    assert stages[2] == "영상에 딸린 한국어 자막이 없어, 말은 음성 인식으로 받아씁니다."
+    assert stages[-2:] == ["음성 인식으로 1구간을 받아썼습니다.", "화면 글자 인식에 실패했습니다: 모델 오류"]
 
 
 def test_pipeline_fails_when_nothing_is_extracted():

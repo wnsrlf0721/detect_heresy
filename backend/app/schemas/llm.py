@@ -43,5 +43,5 @@ class SegmentSelection(BaseModel):
 
 class LLMTopic(BaseModel):
     title: str  # 영상의 대주제 한 줄
-    summary: str  # 2~3문장 요약
+    summary: str  # 3~5문장 영상 요약
     keywords: list[str]

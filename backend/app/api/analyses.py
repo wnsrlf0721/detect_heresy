@@ -16,7 +16,8 @@ def run_analysis(
 ) -> None:
     repository.set_status(analysis_id, JobStatus.RUNNING)
     try:
-        repository.save_result(analysis_id, engine.analyze(segments), segment_ids)
+        result = engine.analyze(segments, lambda text: repository.add_log(analysis_id, text))
+        repository.save_result(analysis_id, result, segment_ids)
         repository.set_status(analysis_id, JobStatus.DONE)
     except AnalysisError as e:
         repository.set_status(analysis_id, JobStatus.FAILED, error=str(e))

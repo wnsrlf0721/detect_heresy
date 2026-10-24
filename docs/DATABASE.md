@@ -43,7 +43,8 @@ videos ──< transcripts ──< segments
 | 영상 링크를 처음 넣음 | `videos` 1행(처음 보는 영상만), `analyses` 1행 |
 | 영상에서 텍스트 추출 | `transcripts` 1행, `segments` 구간 수만큼 |
 | 판별 | `analyses`에 등급·점수 채움, 적발마다 `findings` 1행, 적발의 근거마다 `finding_refs` 1행 |
-| 대주제 정리 | `transcripts`의 `topic_*` 칸 채움(추출 결과마다 한 번) |
+| 대주제(영상 요약) 정리 | `transcripts`의 `topic_*` 칸 채움(추출 결과마다 한 번). 판별과 동시에 돌아 판별보다 먼저 채워짐 |
+| 추출·판별의 각 단계 | `analyses.log`에 한 줄씩 더하고 `progress`를 그 줄로 바꿈 |
 | 같은 영상을 다른 출처로 / 판별 기준이 바뀐 뒤 다시 넣음 | `analyses`만 새로 생기고 기존 `transcripts`·`segments`를 다시 씀 |
 | 같은 영상·출처·판별 버전으로 다시 넣음 | 새 행 없이 저장된 `analyses`를 돌려줌 |
 | **다시 분석** | `transcripts`·`segments`·`analyses`가 새로 생김 |
@@ -119,7 +120,8 @@ videos ──< transcripts ──< segments
 | `sources` | text[] | 판별에 쓴 출처. 정렬된 값. 예: `{caption,ocr,stt}` |
 | `version` | text | 판별 버전. 기준 데이터, 판별 프롬프트, 모델 설정, 엔진 코드로 만든 해시 |
 | `status` | text | `pending` → `running` → `done` 또는 `failed` |
-| `progress` | text | 진행 중인 단계(화면 표시용) |
+| `progress` | text | 진행 중인 단계(화면 표시용). `log`의 마지막 줄 |
+| `log` | text[] | 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 쌓음. 예: `교리와 관련 있어 보이는 구간 18개를 골랐습니다.` 화면의 'AI 진행 과정'에 그대로 보임. 이 칸이 생기기 전의 분석은 비어 있음 |
 | `error` | text | 실패 이유 |
 | `verdict` | text | `safe` / `caution` / `danger`. 판별이 끝나면 채움 |
 | `score` | integer | 종합 의심 지수 0~100. 적발 중 가장 높은 점수 |

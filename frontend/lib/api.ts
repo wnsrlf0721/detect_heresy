@@ -43,6 +43,7 @@ export interface AnalysisResult {
 export interface AnalysisResponse {
   id: string;
   status: JobStatus;
+  log: string[]; // 진행 과정. 판별에서 실제로 한 일을 한 줄씩
   result: AnalysisResult | null;
   error: string | null;
 }
@@ -52,6 +53,8 @@ export interface TranscriptResult {
   duration: number;
   segments: Segment[];
   warnings: string[];
+  // 화면에 보여 주는 합친 텍스트. 말은 자막(없으면 음성), 화면 글자는 말과 겹치지 않는 것만 시간순으로 담는다.
+  merged: Segment[];
 }
 
 export type VideoSource = "caption" | "stt" | "ocr";
@@ -80,6 +83,7 @@ export interface VideoResponse {
   sources: VideoSource[];
   created_at: string;
   progress: string | null;
+  log: string[]; // 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩
   cached: boolean;
   transcript: TranscriptResult | null;
   result: AnalysisResult | null;

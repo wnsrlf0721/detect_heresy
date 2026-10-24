@@ -41,6 +41,9 @@ class Repository(Protocol):
         self, analysis_id: str, status: JobStatus, progress: str | None = None, error: str | None = None
     ) -> None: ...
 
+    def add_log(self, analysis_id: str, text: str) -> None:
+        """진행 과정에 한 줄을 더하고, 진행 중인 단계(progress)도 그 줄로 바꾼다. 여러 스레드에서 불러도 된다."""
+
     def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
         """새로 추출한 결과를 저장하고 작업에 잇는다. 영상 제목과 길이도 채운다."""
 
@@ -109,6 +112,13 @@ class PgRepository:
                 (status.value, progress, error, analysis_id),
             )
 
+    def add_log(self, analysis_id: str, text: str) -> None:
+        with psycopg.connect(self._url) as conn:
+            conn.execute(
+                "UPDATE analyses SET progress = %s, log = array_append(log, %s) WHERE id = %s",
+                (text, text, analysis_id),
+            )
+
     def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
         transcript_id = str(uuid4())
         with psycopg.connect(self._url) as conn:
@@ -170,21 +180,21 @@ class PgRepository:
     def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
-                "SELECT id::text, status, error, verdict, score, summary FROM analyses"
+                "SELECT id::text, status, error, verdict, score, summary, log FROM analyses"
                 " WHERE id::text = %s AND video_id IS NULL",
                 (analysis_id,),
             ).fetchone()
             if row is None:
                 return None
             return AnalysisResponse(
-                id=row[0], status=row[1], error=row[2], result=self._load_result(conn, row[0], *row[3:6])
+                id=row[0], status=row[1], error=row[2], log=row[6], result=self._load_result(conn, row[0], *row[3:6])
             )
 
     def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
                 "SELECT a.id::text, a.status, v.url, a.sources, a.created_at, a.progress, a.error,"
-                " a.transcript_id::text, a.verdict, a.score, a.summary"
+                " a.transcript_id::text, a.verdict, a.score, a.summary, a.log"
                 " FROM analyses a JOIN videos v ON v.video_id = a.video_id WHERE a.id::text = %s",
                 (analysis_id,),
             ).fetchone()
@@ -198,6 +208,7 @@ class PgRepository:
                 sources=row[3],
                 created_at=row[4],
                 progress=row[5],
+                log=row[11],
                 error=row[6],
                 transcript=stored.result if stored else None,
                 topic=stored.topic if stored else None,
@@ -333,6 +344,7 @@ class _Analysis:
     seq: int  # 만든 시각이 같을 때 순서
     transcript_id: str | None = None
     progress: str | None = None
+    log: list[str] = field(default_factory=list)
     error: str | None = None
     result: AnalysisResult | None = None
 
@@ -379,6 +391,11 @@ class InMemoryRepository:
         analysis = self.analyses[analysis_id]
         analysis.status, analysis.progress, analysis.error = status, progress, error
 
+    def add_log(self, analysis_id: str, text: str) -> None:
+        analysis = self.analyses[analysis_id]
+        analysis.progress = text
+        analysis.log.append(text)
+
     def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
         video = self.videos[video_id]
         video.title, video.duration = transcript.title, transcript.duration
@@ -404,7 +421,7 @@ class InMemoryRepository:
         a = self.analyses.get(analysis_id)
         if a is None or a.video_id is not None:
             return None
-        return AnalysisResponse(id=a.id, status=a.status, result=a.result, error=a.error)
+        return AnalysisResponse(id=a.id, status=a.status, result=a.result, error=a.error, log=list(a.log))
 
     def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
         a = self.analyses.get(analysis_id)
@@ -418,6 +435,7 @@ class InMemoryRepository:
             sources=a.sources,
             created_at=a.created_at,
             progress=a.progress,
+            log=list(a.log),
             error=a.error,
             transcript=stored.result if stored else None,
             topic=stored.topic if stored else None,
