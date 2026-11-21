@@ -4,9 +4,12 @@
 """
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 from app.config import get_settings
 from app.db import INTERRUPTED, fail_interrupted_jobs, init_db
@@ -17,24 +20,26 @@ from app.schemas.reference import Chunk
 from app.schemas.transcript import TranscriptResult
 from app.schemas.video import VideoResponse, VideoTopic
 
-SCHEMA = "pytest_tmp"
-
-
 @pytest.fixture
 def database_url():
     base = get_settings().database_url
+    # 동시에 도는 테스트가 서로의 스키마를 지우면 public 테이블을 쓸 수 있다.
+    schema = f"pytest_{uuid4().hex}"
     try:
         with psycopg.connect(base, connect_timeout=2) as conn:
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            conn.execute(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
-            conn.execute(f"CREATE SCHEMA {SCHEMA}")
+            conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
     except psycopg.OperationalError:
         pytest.skip("Postgres 에 연결할 수 없음")
-    url = f"{base}?options=-csearch_path%3D{SCHEMA},public"
-    init_db(url)
-    yield url
-    with psycopg.connect(base) as conn:
-        conn.execute(f"DROP SCHEMA {SCHEMA} CASCADE")
+    url = make_conninfo(base, options=f"-c search_path={schema},public")
+    try:
+        with psycopg.connect(url) as conn:
+            assert conn.execute("SELECT current_schema()").fetchone() == (schema,)
+        init_db(url)
+        yield url
+    finally:
+        with psycopg.connect(base) as conn:
+            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
 
 def _vector(*hot: int) -> list[float]:
