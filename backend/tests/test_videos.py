@@ -44,7 +44,7 @@ class FakeSource:
         self.fetched: list[str] = []
         self.error = error
 
-    def fetch(self, url, workdir):
+    def fetch(self, url, workdir, *, automatic_speech=False):
         self.fetched.append(url)
         if self.error:
             raise self.error
@@ -99,8 +99,10 @@ def make_client(embedder, store):
     app.dependency_overrides.clear()
 
 
-def analyze(client, url, **body):
+def analyze(client, url, sources=("caption", "ocr", "stt"), **body):
     """POST 후 (TestClient 가 끝낸) 백그라운드 작업의 결과를 GET 으로 가져온다."""
+    if sources is not None:
+        body["sources"] = sources
     created = client.post("/videos", json={"url": url, **body})
     assert created.status_code in (200, 202), created.text
     return created, client.get(f"/videos/{created.json()['id']}").json()
@@ -136,6 +138,24 @@ def test_same_video_returns_saved_analysis(make_client):
     assert created.json()["result"] == first["result"]
     assert len(client.source.fetched) == 1
     assert len(client.analyzer.calls) == 1
+
+
+def test_automatic_analysis_uses_its_own_transcript_and_cache(make_client):
+    client = make_client()
+    _, legacy = analyze(client, VIDEO_A)
+    created, first = analyze(client, VIDEO_A, sources=None)
+    assert created.status_code == 202 and first["id"] != legacy["id"]
+    assert first["sources"] == ["caption"]
+    assert {s["source"] for s in first["transcript"]["segments"]} == {"caption"}
+    assert 'source="stt"' not in client.analyzer.calls[-1][1]
+    assert len(client.source.fetched) == 2
+
+    cached, _ = analyze(client, VIDEO_A, sources=None)
+    assert cached.status_code == 200 and cached.json()["id"] == first["id"]
+    client.state["version"] = "v2"
+    _, reanalyzed = analyze(client, VIDEO_A, sources=None)
+    assert reanalyzed["id"] != first["id"] and reanalyzed["sources"] == ["caption"]
+    assert len(client.source.fetched) == 2
 
 
 def test_different_sources_reuse_extracted_text(make_client):
@@ -205,7 +225,7 @@ def test_running_job_is_shared(make_client):
         id="11111111-1111-1111-1111-111111111111",
         status=JobStatus.RUNNING,
         url=VIDEO_A,
-        sources=["caption", "ocr", "stt"],
+        sources=[],
         created_at=datetime.now(UTC),
     )
     client.repository.create_video_analysis(running, "AAAAAAAAAAA", "v1")

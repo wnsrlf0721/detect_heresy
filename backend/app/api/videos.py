@@ -63,16 +63,22 @@ def run_video(
     def log(text: str) -> None:
         repository.add_log(job.id, text)
 
+    automatic_speech = not job.sources
     try:
         repository.set_status(job.id, JobStatus.RUNNING)
         if saved is None:
-            saved = repository.save_transcript(job.id, video_id, pipeline.run(job.url, log))
+            transcript = pipeline.run(job.url, log, automatic_speech=automatic_speech)
+            saved = repository.save_transcript(job.id, video_id, transcript, automatic_speech=automatic_speech)
         else:
             repository.use_transcript(job.id, saved.id)
             log(f"이 영상에서 이전에 추출한 텍스트({_source_counts(saved.result.segments)})를 다시 씁니다.")
         log(f"자막·음성·화면 글자에서 겹치는 내용을 합쳐 {len(saved.result.merged)}줄로 정리했습니다.")
 
-        picked = [(s, i) for s, i in zip(saved.result.segments, saved.segment_ids, strict=True) if s.source in job.sources]
+        picked = [
+            (segment, segment_id)
+            for segment, segment_id in zip(saved.result.segments, saved.segment_ids, strict=True)
+            if automatic_speech or segment.source in job.sources
+        ]
         if not picked:
             raise AnalysisError("선택한 출처에서 추출된 텍스트가 없습니다.")
         log(f"판별에는 {_source_counts([s for s, _ in picked])}을 씁니다.")
@@ -111,8 +117,9 @@ def create_video(
 ) -> VideoResponse:
     """영상을 분석한다. 같은 영상·출처·판별 버전의 분석이 있으면 바로 돌려주고, 없으면 pending 으로 응답하고 뒤에서 처리한다."""
     video_id = youtube_video_id(request.url)
+    sources = request.sources or []
     if not request.force:
-        existing = repository.find_video_analysis(video_id, request.sources, version)
+        existing = repository.find_video_analysis(video_id, sources, version)
         if existing is not None:
             if existing.status == JobStatus.DONE:
                 response.status_code = 200
@@ -120,12 +127,12 @@ def create_video(
             return existing  # 같은 분석이 진행 중이면 그 작업을 같이 기다린다.
 
     # 판별 기준이나 출처만 바뀐 경우에는 내려받기와 음성 인식을 다시 하지 않는다.
-    saved = None if request.force else repository.find_transcript(video_id)
+    saved = None if request.force else repository.find_transcript(video_id, automatic_speech=not sources)
     job = VideoResponse(
         id=str(uuid4()),
         status=JobStatus.PENDING,
         url=request.url,
-        sources=request.sources,
+        sources=sources,
         created_at=datetime.now(UTC),
     )
     repository.create_video_analysis(job, video_id, version)

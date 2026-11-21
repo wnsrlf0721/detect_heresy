@@ -16,14 +16,14 @@ CAPTION_MIN_CHARS = 60
 class Media:
     title: str
     duration: int  # 초
-    audio_path: Path
+    audio_path: Path | None
     video_path: Path
     captions: list[Segment]
     warnings: list[str]
 
 
 class MediaSource(Protocol):
-    def fetch(self, url: str, workdir: Path) -> Media: ...
+    def fetch(self, url: str, workdir: Path, *, automatic_speech: bool = False) -> Media: ...
 
 
 def parse_json3(raw: bytes) -> list[Segment]:
@@ -51,13 +51,15 @@ def parse_json3(raw: bytes) -> list[Segment]:
     return segments
 
 
-def _caption_urls(info: dict) -> list[str]:
+def _caption_urls(info: dict, manual_only: bool = False) -> list[str]:
     """시도할 자막 주소. 사람이 올린 자막, 원본 자동 자막, 번역 경로의 자동 자막 순이다."""
-    candidates = [
-        (info.get("subtitles") or {}, "ko"),
-        (info.get("automatic_captions") or {}, "ko-orig"),
-        (info.get("automatic_captions") or {}, "ko"),
-    ]
+    manual = info.get("subtitles") or {}
+    candidates = [(manual, "ko")]
+    if manual_only:
+        candidates.extend((manual, lang) for lang in manual if lang.startswith("ko-"))
+    else:
+        automatic = info.get("automatic_captions") or {}
+        candidates.extend(((automatic, "ko-orig"), (automatic, "ko")))
     return [
         fmt["url"] for tracks, lang in candidates for fmt in tracks.get(lang, []) if fmt.get("ext") == "json3"
     ]
@@ -77,7 +79,7 @@ class YtDlpSource:
     def _options(self, **extra) -> dict:
         return {"quiet": True, "no_warnings": True, "noprogress": True, "noplaylist": True, "js_runtimes": {"node": {}}} | extra
 
-    def fetch(self, url: str, workdir: Path) -> Media:
+    def fetch(self, url: str, workdir: Path, *, automatic_speech: bool = False) -> Media:
         import yt_dlp
 
         try:
@@ -90,20 +92,20 @@ class YtDlpSource:
                     raise AnalysisError(
                         f"영상이 너무 깁니다. {self._max_seconds // 60}분 이하의 영상만 지원합니다."
                     )
-                captions, warnings = self._captions(ydl, info)
+                captions, warnings = self._captions(ydl, info, manual_only=automatic_speech)
 
-            paths = {
-                name: self._download(url, fmt, workdir / f"{name}.%(ext)s")
-                for name, fmt in (("audio", self.AUDIO_FORMAT), ("video", self.VIDEO_FORMAT))
-            }
+            audio_path = None
+            if not automatic_speech or not captions:
+                audio_path = self._download(url, self.AUDIO_FORMAT, workdir / "audio.%(ext)s")
+            video_path = self._download(url, self.VIDEO_FORMAT, workdir / "video.%(ext)s")
         except yt_dlp.utils.DownloadError as e:
             raise AnalysisError(f"영상을 가져오지 못했습니다: {e}") from e
 
         return Media(
             title=info.get("title") or "",
             duration=duration,
-            audio_path=paths["audio"],
-            video_path=paths["video"],
+            audio_path=audio_path,
+            video_path=video_path,
             captions=captions,
             warnings=warnings,
         )
@@ -122,15 +124,18 @@ class YtDlpSource:
                 time.sleep(1 + attempt)
         raise AssertionError("unreachable")
 
-    def _captions(self, ydl, info: dict) -> tuple[list[Segment], list[str]]:
-        urls = _caption_urls(info)
+    def _captions(self, ydl, info: dict, *, manual_only: bool = False) -> tuple[list[Segment], list[str]]:
+        urls = _caption_urls(info, manual_only)
         if not urls:
-            return [], ["이 영상에는 한국어 자막이 없습니다."]
-        error: Exception | None = None
+            return [], [] if manual_only else ["이 영상에는 한국어 자막이 없습니다."]
+        error = "자막이 비어 있습니다."
         # 같은 언어에 주소가 여러 개 있고 일부만 429로 막히는 일이 있어 차례로 시도한다.
         for caption_url in urls:
             try:
-                return parse_json3(ydl.urlopen(caption_url).read()), []
+                with ydl.urlopen(caption_url) as response:
+                    captions = parse_json3(response.read())
+                if captions:
+                    return captions, []
             except Exception as e:  # 자막만 실패해도 음성·화면 추출은 계속한다.
-                error = e
+                error = str(e)
         return [], [f"자막을 가져오지 못했습니다: {error}"]

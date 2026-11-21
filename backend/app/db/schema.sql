@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
     topic_embedding vector(1024),                   -- 비슷한 주제의 영상을 찾는 데 쓴다
     created_at      timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS automatic_speech boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS transcripts_video ON transcripts (video_id, created_at DESC);
 
 -- 추출 결과의 구간 하나.

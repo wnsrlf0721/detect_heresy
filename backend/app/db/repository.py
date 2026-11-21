@@ -44,7 +44,9 @@ class Repository(Protocol):
     def add_log(self, analysis_id: str, text: str) -> None:
         """진행 과정에 한 줄을 더하고, 진행 중인 단계(progress)도 그 줄로 바꾼다. 여러 스레드에서 불러도 된다."""
 
-    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+    def save_transcript(
+        self, analysis_id: str, video_id: str, transcript: TranscriptResult, *, automatic_speech: bool = False
+    ) -> StoredTranscript:
         """새로 추출한 결과를 저장하고 작업에 잇는다. 영상 제목과 길이도 채운다."""
 
     def use_transcript(self, analysis_id: str, transcript_id: str) -> None:
@@ -63,8 +65,8 @@ class Repository(Protocol):
         """같은 영상·출처·버전의 가장 최근 작업. 끝났거나 아직 진행 중인 것만 찾는다.
         서버 재시작으로 끊긴 작업은 시작할 때 실패로 바뀌므로(app.db.fail_interrupted_jobs) 찾지 않는다."""
 
-    def find_transcript(self, video_id: str) -> StoredTranscript | None:
-        """출처나 버전과 상관없이, 이 영상에서 가장 최근에 추출한 결과."""
+    def find_transcript(self, video_id: str, *, automatic_speech: bool = False) -> StoredTranscript | None:
+        """이 영상에서 같은 추출 방식으로 저장한 가장 최근의 결과."""
 
     def related(self, analysis_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:
         """대주제가 비슷한 다른 영상의 최근 분석. 유사도가 높은 순서다."""
@@ -74,6 +76,13 @@ def _segment_id(finding: Finding, segment_ids: list[int]) -> int:
     if finding.segment_index is None or not 0 <= finding.segment_index < len(segment_ids):
         raise ValueError(f"적발이 판별한 구간을 가리키지 않습니다: {finding.quote}")
     return segment_ids[finding.segment_index]
+
+
+def _response_sources(requested: list[str], stored: StoredTranscript | None) -> list[str]:
+    # 빈 배열은 자동 선택 요청의 캐시 키다. 응답에는 저장된 구간의 출처를 표시한다.
+    if requested or stored is None:
+        return requested
+    return sorted({segment.source for segment in stored.result.segments})
 
 
 class PgRepository:
@@ -119,7 +128,9 @@ class PgRepository:
                 (text, text, analysis_id),
             )
 
-    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+    def save_transcript(
+        self, analysis_id: str, video_id: str, transcript: TranscriptResult, *, automatic_speech: bool = False
+    ) -> StoredTranscript:
         transcript_id = str(uuid4())
         with psycopg.connect(self._url) as conn:
             conn.execute(
@@ -127,8 +138,8 @@ class PgRepository:
                 (transcript.title, transcript.duration, video_id),
             )
             conn.execute(
-                "INSERT INTO transcripts (id, video_id, warnings) VALUES (%s, %s, %s)",
-                (transcript_id, video_id, transcript.warnings),
+                "INSERT INTO transcripts (id, video_id, warnings, automatic_speech) VALUES (%s, %s, %s, %s)",
+                (transcript_id, video_id, transcript.warnings, automatic_speech),
             )
             segment_ids = self._insert_segments(conn, transcript_id, transcript.segments)
             conn.execute("UPDATE analyses SET transcript_id = %s WHERE id = %s", (transcript_id, analysis_id))
@@ -205,7 +216,7 @@ class PgRepository:
                 id=row[0],
                 status=row[1],
                 url=row[2],
-                sources=row[3],
+                sources=_response_sources(row[3], stored),
                 created_at=row[4],
                 progress=row[5],
                 log=row[11],
@@ -224,10 +235,12 @@ class PgRepository:
             ).fetchone()
         return self.get_video_analysis(row[0]) if row else None
 
-    def find_transcript(self, video_id: str) -> StoredTranscript | None:
+    def find_transcript(self, video_id: str, *, automatic_speech: bool = False) -> StoredTranscript | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
-                "SELECT id::text FROM transcripts WHERE video_id = %s ORDER BY created_at DESC LIMIT 1", (video_id,)
+                "SELECT id::text FROM transcripts WHERE video_id = %s AND automatic_speech = %s"
+                " ORDER BY created_at DESC LIMIT 1",
+                (video_id, automatic_speech),
             ).fetchone()
             return self._load_transcript(conn, row[0]) if row else None
 
@@ -362,6 +375,7 @@ class _Transcript:
     video_id: str | None
     seq: int
     embedding: list[float] | None = None
+    automatic_speech: bool = False
 
 
 @dataclass
@@ -396,10 +410,13 @@ class InMemoryRepository:
         analysis.progress = text
         analysis.log.append(text)
 
-    def save_transcript(self, analysis_id: str, video_id: str, transcript: TranscriptResult) -> StoredTranscript:
+    def save_transcript(
+        self, analysis_id: str, video_id: str, transcript: TranscriptResult, *, automatic_speech: bool = False
+    ) -> StoredTranscript:
         video = self.videos[video_id]
         video.title, video.duration = transcript.title, transcript.duration
         stored = self._new_transcript(video_id, transcript)
+        self.transcripts[stored.id].automatic_speech = automatic_speech
         self.analyses[analysis_id].transcript_id = stored.id
         return stored
 
@@ -432,7 +449,7 @@ class InMemoryRepository:
             id=a.id,
             status=a.status,
             url=self.videos[a.video_id].url,
-            sources=a.sources,
+            sources=_response_sources(a.sources, stored),
             created_at=a.created_at,
             progress=a.progress,
             log=list(a.log),
@@ -448,8 +465,11 @@ class InMemoryRepository:
                 return self.get_video_analysis(a.id)
         return None
 
-    def find_transcript(self, video_id: str) -> StoredTranscript | None:
-        found = [t for t in self.transcripts.values() if t.video_id == video_id]
+    def find_transcript(self, video_id: str, *, automatic_speech: bool = False) -> StoredTranscript | None:
+        found = [
+            t for t in self.transcripts.values()
+            if t.video_id == video_id and t.automatic_speech == automatic_speech
+        ]
         return max(found, key=lambda t: t.seq).stored if found else None
 
     def related(self, analysis_id: str, min_similarity: float, limit: int) -> list[RelatedVideo]:

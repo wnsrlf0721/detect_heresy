@@ -1,11 +1,12 @@
 import json
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
 from app.errors import AnalysisError
 from app.media import format_time
-from app.media.downloader import Media, parse_json3
+from app.media.downloader import Media, YtDlpSource, parse_json3
 from app.media.ocr import dedupe
 from app.media.pipeline import TranscriptPipeline
 from app.schemas.analysis import AnalysisRequest, Segment
@@ -17,7 +18,7 @@ class FakeSource:
     def __init__(self, captions=(), warnings=(), error=None):
         self.captions, self.warnings, self.error = list(captions), list(warnings), error
 
-    def fetch(self, url, workdir):
+    def fetch(self, url, workdir, *, automatic_speech=False):
         if self.error:
             raise self.error
         return Media("제목", 240, Path(workdir) / "audio.m4a", Path(workdir) / "video.mp4", self.captions, self.warnings)
@@ -40,6 +41,47 @@ class FakeStep:
 CAPTION = Segment(time="00:01", text="자막", source="caption")
 STT = Segment(time="00:02", text="음성", source="stt")
 OCR = Segment(time="00:03", text="화면", source="ocr")
+
+
+@pytest.mark.parametrize(("manual", "expected_speech"), [(True, "caption"), (False, "stt")])
+def test_automatic_speech_uses_only_manual_captions_or_audio(monkeypatch, manual, expected_speech):
+    urls = []
+    downloads = []
+    info = {"duration": 240, "automatic_captions": {"ko": [{"ext": "json3", "url": "automatic"}]}}
+    if manual:
+        info["subtitles"] = {"ko": [{"ext": "json3", "url": "manual"}]}
+
+    class YoutubeDL:
+        def __init__(self, options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def extract_info(self, url, download):
+            return info
+
+        def urlopen(self, url):
+            urls.append(url)
+            return BytesIO(json.dumps({"events": [{"tStartMs": 1000, "segs": [{"utf8": CAPTION.text}]}]}).encode())
+
+    def download(url, fmt, path):
+        downloads.append(fmt)
+        return path
+
+    source = YtDlpSource(max_seconds=1800)
+    monkeypatch.setattr("yt_dlp.YoutubeDL", YoutubeDL)
+    monkeypatch.setattr(source, "_download", download)
+    stt = FakeStep([STT] if not manual else AssertionError("STT must not run with manual captions"))
+    stages = []
+    result = TranscriptPipeline(source, stt, FakeStep([OCR])).run(URL, stages.append, automatic_speech=True)
+    assert [segment.source for segment in result.segments] == [expected_speech, "ocr"]
+    assert result.warnings == []
+    assert urls == (["manual"] if manual else [])
+    assert downloads == ([source.VIDEO_FORMAT] if manual else [source.AUDIO_FORMAT, source.VIDEO_FORMAT])
 
 
 @pytest.mark.parametrize("seconds, expected", [(0, "00:00"), (135.9, "02:15"), (3735, "1:02:15")])

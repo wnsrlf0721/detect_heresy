@@ -17,8 +17,8 @@ class VideoRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str = Field(max_length=500)
-    # 판별에 쓸 출처. 추출은 항상 세 출처 모두 한다.
-    sources: list[VideoSource] = Field(default=["caption", "stt", "ocr"], min_length=1, validate_default=True)
+    # 생략하면 수동 자막과 음성 인식 중 하나를 고른다. 기존 호출자가 출처를 지정할 수도 있다.
+    sources: list[VideoSource] | None = Field(default=None, min_length=1)
     # 저장된 분석이 있어도 추출부터 다시 한다.
     force: bool = False
 
@@ -32,9 +32,9 @@ class VideoRequest(BaseModel):
 
     @field_validator("sources")
     @classmethod
-    def _normalize(cls, value: list[str]) -> list[str]:
+    def _normalize(cls, value: list[str] | None) -> list[str] | None:
         """같은 조합이 같은 저장 결과를 가리키도록 중복을 없애고 정렬한다."""
-        return sorted(set(value))
+        return sorted(set(value)) if value is not None else None
 
 
 class VideoPreview(BaseModel):

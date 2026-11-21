@@ -138,8 +138,8 @@ export function getAnalysis(id: string): Promise<AnalysisResponse> {
 }
 
 /** 영상 분석. 같은 영상·출처의 저장된 분석이 있으면 done 으로 바로 돌아온다. force 면 처음부터 다시 한다. */
-export function createVideo(url: string, sources: VideoSource[], force = false): Promise<VideoResponse> {
-  return request("/videos", { method: "POST", body: JSON.stringify({ url, sources, force }) });
+export function createVideo(url: string, force = false): Promise<VideoResponse> {
+  return request("/videos", { method: "POST", body: JSON.stringify({ url, force }) });
 }
 
 export function getVideo(id: string): Promise<VideoResponse> {

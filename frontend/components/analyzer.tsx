@@ -13,12 +13,10 @@ import {
   getVideoPreview,
   JobStatus,
   Segment,
-  SOURCE_LABEL,
   toSeconds,
   TranscriptResult,
   VideoPreview,
   VideoResponse,
-  VideoSource,
   youtubeId,
 } from "@/lib/api";
 import { FindingCard, Gauge, RelatedList, ThinkingLog, Timeline, TopicPanel, TranscriptPanel } from "@/components/result";
@@ -26,7 +24,6 @@ import { FindingCard, Gauge, RelatedList, ThinkingLog, Timeline, TopicPanel, Tra
 type Mode = "video" | "text";
 type Phase = "idle" | "extracting" | "analyzing" | "done" | "error";
 
-const VIDEO_SOURCES: VideoSource[] = ["caption", "stt", "ocr"];
 const POLL_MS = 2000;
 // 주소를 입력하는 동안에는 확인하지 않고, 입력이 멈추면 한 번 확인한다.
 const PREVIEW_DELAY_MS = 500;
@@ -148,7 +145,6 @@ export function Analyzer() {
   const [mode, setMode] = useState<Mode>("video");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
-  const [included, setIncluded] = useState<VideoSource[]>(VIDEO_SOURCES);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [log, setLog] = useState<string[]>([]);
@@ -195,7 +191,7 @@ export function Analyzer() {
   async function runVideo(run: number, force: boolean) {
     setPhase("extracting");
     const job = await waitFor(
-      await createVideo(url.trim(), included, force),
+      await createVideo(url.trim(), force),
       getVideo,
       () => run === runId.current,
       (job) => {
@@ -247,7 +243,6 @@ export function Analyzer() {
       if (run !== runId.current) return;
       setMode("video");
       setUrl(job.url);
-      setIncluded(job.sources);
       setVideoId(youtubeId(job.url));
       setVideo({ ...job, cached: true });
       setLog(job.log);
@@ -271,7 +266,7 @@ export function Analyzer() {
 
   const canSubmit =
     !busy &&
-    (mode === "video" ? url.trim() !== "" && included.length > 0 && preview?.state !== "missing" : text.trim() !== "");
+    (mode === "video" ? url.trim() !== "" && preview?.state !== "missing" : text.trim() !== "");
   // 아래 결과에 같은 영상의 플레이어가 이미 있으면 미리보기는 숨긴다.
   const showPreview =
     preview !== null && !busy && !(preview.state === "found" && preview.video.video_id === videoId && (transcript || result));
@@ -316,28 +311,9 @@ export function Analyzer() {
               placeholder="https://youtu.be/..."
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 outline-none focus:border-zinc-900 disabled:bg-zinc-50"
             />
-            <fieldset className="mt-4">
-              <legend className="text-sm font-medium">판별에 포함할 텍스트</legend>
-              <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-                {VIDEO_SOURCES.map((source) => (
-                  <label key={source} className="flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
-                      disabled={busy}
-                      checked={included.includes(source)}
-                      onChange={(event) =>
-                        setIncluded(event.target.checked ? [...included, source] : included.filter((s) => s !== source))
-                      }
-                    />
-                    {SOURCE_LABEL[source]}
-                  </label>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">
-                세 가지 모두 영상에서 추출해 보여 주고, 선택한 것만 판별에 씁니다. 자막과 음성에서 같은 발언이 함께 적발되면 하나로 합쳐 보여 줍니다.
-                이미 분석한 영상은 저장된 결과를 바로 보여 줍니다.
-              </p>
-            </fieldset>
+            <p className="mt-2 text-xs text-zinc-500">
+              사람이 작성한 한국어 자막을 우선 사용합니다. 자막을 가져올 수 없으면 음성을 받아씁니다. 화면 글자도 함께 분석합니다.
+            </p>
           </>
         ) : (
           <>
@@ -429,7 +405,7 @@ export function Analyzer() {
                 <ThinkingLog lines={log} running />
               </div>
               <p className="mt-4 text-sm text-zinc-500">
-                {Math.floor(elapsed / 60)}분 {elapsed % 60}초 경과 · 몇 분짜리 영상이면 1~2분쯤 걸립니다. 창을 닫지 마세요.
+                {Math.floor(elapsed / 60)}분 {elapsed % 60}초 경과 · 분석 시간은 영상과 판별할 구간 수에 따라 달라집니다.
               </p>
             </section>
           )}
@@ -465,7 +441,7 @@ export function Analyzer() {
               segments={transcript.segments}
               merged={transcript.merged}
               findings={result?.findings ?? []}
-              included={video?.sources ?? included}
+              included={video?.sources ?? []}
               onSeek={videoId ? setStartAt : null}
             />
           )}
