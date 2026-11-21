@@ -12,6 +12,7 @@ from app.media.ocr import FrameReader
 from app.media.stt import Transcriber
 from app.schemas.analysis import Segment
 from app.schemas.transcript import TranscriptResult
+from app.timing import measure, submit_timed
 
 
 class TranscriptPipeline:
@@ -43,15 +44,15 @@ class TranscriptPipeline:
             if audio_path is None:
                 on_progress("수동 자막을 사용하고 화면 글자를 읽는 중입니다.")
                 stt = []
-                ocr = self._step("화면 글자 인식", lambda: self._reader.read(media.video_path), ocr_warnings)
+                ocr = self._step("ocr", "화면 글자 인식", lambda: self._reader.read(media.video_path), ocr_warnings)
             else:
                 on_progress("음성을 받아쓰고 화면 글자를 읽는 중입니다.")
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    stt_job = pool.submit(
-                        self._step, "음성 인식", lambda: self._transcriber.transcribe(audio_path), stt_warnings
+                    stt_job = submit_timed(
+                        pool, self._step, "stt", "음성 인식", lambda: self._transcriber.transcribe(audio_path), stt_warnings
                     )
-                    ocr_job = pool.submit(
-                        self._step, "화면 글자 인식", lambda: self._reader.read(media.video_path), ocr_warnings
+                    ocr_job = submit_timed(
+                        pool, self._step, "ocr", "화면 글자 인식", lambda: self._reader.read(media.video_path), ocr_warnings
                     )
                     stt, ocr = stt_job.result(), ocr_job.result()
             warnings += stt_warnings + ocr_warnings
@@ -70,10 +71,11 @@ class TranscriptPipeline:
         )
 
     @staticmethod
-    def _step(name: str, run: Callable[[], list[Segment]], warnings: list[str]) -> list[Segment]:
+    def _step(stage: str, name: str, run: Callable[[], list[Segment]], warnings: list[str]) -> list[Segment]:
         """한 출처가 실패해도 나머지 출처의 결과는 살린다."""
         try:
-            return run()
+            with measure(stage):
+                return run()
         except Exception as e:
             warnings.append(f"{name}에 실패했습니다: {e}")
             return []

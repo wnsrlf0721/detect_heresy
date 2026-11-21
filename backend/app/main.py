@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,11 +8,15 @@ from app.api import analyses, videos
 from app.config import get_settings
 from app.db import fail_interrupted_jobs, init_db
 
+logger = logging.getLogger("uvicorn.error").getChild(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db(get_settings().database_url)
-    fail_interrupted_jobs(get_settings().database_url)
+    database_url = get_settings().database_url
+    init_db(database_url)
+    interrupted = fail_interrupted_jobs(database_url)
+    logger.info("database.ready interrupted_jobs=%d", interrupted)
     yield
 
 

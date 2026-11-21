@@ -165,6 +165,8 @@ def test_video_analysis_roundtrip(database_url):
     assert (running.status, running.progress, running.transcript, running.result) == ("running", "내려받는 중", transcript, None)
     assert repository.find_transcript("AAAAAAAAAAA", automatic_speech=True) is None
     assert running.log == ["영상을 내려받는 중입니다.", "내려받는 중"]
+    assert len(running.log_times) == len(running.log)
+    assert running.log_times[0] <= running.log_times[1]
     found = repository.find_transcript("AAAAAAAAAAA")
     assert (found.id, found.result, found.segment_ids, found.topic) == (stored.id, transcript, stored.segment_ids, None)
 
@@ -172,7 +174,10 @@ def test_video_analysis_roundtrip(database_url):
     repository.save_topic(stored.id, topic, _vector(0))
     repository.set_status(a.id, JobStatus.DONE)
     a = a.model_copy(
-        update={"status": JobStatus.DONE, "transcript": transcript, "result": result, "topic": topic, "log": running.log}
+        update={
+            "status": JobStatus.DONE, "transcript": transcript, "result": result, "topic": topic,
+            "log": running.log, "log_times": running.log_times,
+        }
     )
     assert repository.get_video_analysis(a.id) == a
     assert repository.find_video_analysis("AAAAAAAAAAA", a.sources, "v1") == a

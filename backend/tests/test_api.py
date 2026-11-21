@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -26,7 +28,8 @@ def make_client(embedder, store):
     app.dependency_overrides.clear()
 
 
-def test_create_then_get_analysis(make_client):
+def test_create_then_get_analysis(make_client, caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error.app.api.analyses")
     finding = llm_finding(quote="약속의 목자", reference_ids=["scj-promised-pastor"])
     client = make_client(LLMAnalysis(summary="요약", findings=[finding]))
 
@@ -55,6 +58,8 @@ def test_create_then_get_analysis(make_client):
     }
     assert body["result"]["findings"][0]["references"][0]["id"] == "scj-promised-pastor"
     assert body["log"][-1] == "판별을 마쳤습니다. 의심 발언 1건, 종합 의심 지수 80점(위험)."
+    assert f"text_analysis.result_saved analysis_id={body['id']} verdict=danger score=80 findings=1" in caplog.text
+    assert TEXT not in caplog.text
 
 
 def test_text_is_saved_as_transcript_without_video(make_client):
@@ -72,13 +77,17 @@ def test_text_is_saved_as_transcript_without_video(make_client):
     assert client.get(f"/videos/{created['id']}").status_code == 404
 
 
-def test_engine_failure_is_reported_as_failed_job(make_client):
+def test_engine_failure_is_reported_as_failed_job(make_client, caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error.app.timing")
     client = make_client(AnalysisError("LLM 서버에 연결하지 못했습니다."))
     created = client.post("/analyses", json={"segments": [{"text": TEXT}]}).json()
     body = client.get(f"/analyses/{created['id']}").json()
     assert body["status"] == "failed"
     assert body["result"] is None
     assert body["error"] == "LLM 서버에 연결하지 못했습니다."
+    assert f"text_analysis.failed analysis_id={created['id']} stage=analyze error=AnalysisError" in caplog.text
+    assert "text_analysis.result_saved" not in caplog.text
+    assert f"analysis.timing_summary analysis_id={created['id']} kind=text status=failed" in caplog.text
 
 
 def test_unexpected_error_does_not_leave_job_running(make_client):

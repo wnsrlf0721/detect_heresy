@@ -44,6 +44,7 @@ export interface AnalysisResponse {
   id: string;
   status: JobStatus;
   log: string[]; // 진행 과정. 판별에서 실제로 한 일을 한 줄씩
+  log_times?: string[];
   result: AnalysisResult | null;
   error: string | null;
 }
@@ -84,6 +85,7 @@ export interface VideoResponse {
   created_at: string;
   progress: string | null;
   log: string[]; // 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩
+  log_times?: string[];
   cached: boolean;
   transcript: TranscriptResult | null;
   result: AnalysisResult | null;

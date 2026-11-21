@@ -7,6 +7,7 @@ from typing import Protocol
 from app.errors import AnalysisError
 from app.media import format_time
 from app.schemas.analysis import Segment
+from app.timing import measure
 
 # 자동 자막은 몇 단어씩 끊겨 있어서, 이 길이가 될 때까지 이어 붙여 한 구간으로 만든다.
 CAPTION_MIN_CHARS = 60
@@ -84,7 +85,8 @@ class YtDlpSource:
 
         try:
             with yt_dlp.YoutubeDL(self._options()) as ydl:
-                info = ydl.extract_info(url, download=False)
+                with measure("youtube_metadata"):
+                    info = ydl.extract_info(url, download=False)
                 if info.get("is_live"):
                     raise AnalysisError("실시간 방송은 분석할 수 없습니다.")
                 duration = int(info.get("duration") or 0)
@@ -92,12 +94,15 @@ class YtDlpSource:
                     raise AnalysisError(
                         f"영상이 너무 깁니다. {self._max_seconds // 60}분 이하의 영상만 지원합니다."
                     )
-                captions, warnings = self._captions(ydl, info, manual_only=automatic_speech)
+                with measure("youtube_captions"):
+                    captions, warnings = self._captions(ydl, info, manual_only=automatic_speech)
 
             audio_path = None
             if not automatic_speech or not captions:
-                audio_path = self._download(url, self.AUDIO_FORMAT, workdir / "audio.%(ext)s")
-            video_path = self._download(url, self.VIDEO_FORMAT, workdir / "video.%(ext)s")
+                with measure("audio_download"):
+                    audio_path = self._download(url, self.AUDIO_FORMAT, workdir / "audio.%(ext)s")
+            with measure("video_download"):
+                video_path = self._download(url, self.VIDEO_FORMAT, workdir / "video.%(ext)s")
         except yt_dlp.utils.DownloadError as e:
             raise AnalysisError(f"영상을 가져오지 못했습니다: {e}") from e
 

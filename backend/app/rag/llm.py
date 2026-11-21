@@ -8,6 +8,7 @@ import anthropic
 from app import prompts
 from app.errors import AnalysisError
 from app.schemas.llm import FrameTexts, LLMAnalysis, LLMTopic, SegmentSelection
+from app.timing import measure, submit_timed
 
 
 class Analyzer(Protocol):
@@ -124,7 +125,7 @@ class ClaudeVision:
                     },
                 }
             )
-        with _api_errors():
+        with measure("ocr_vision_llm"), _api_errors():
             response = self._client.beta.messages.parse(
                 model=self._model,
                 max_tokens=16000,
@@ -133,8 +134,9 @@ class ClaudeVision:
                 output_config={"effort": "low"},
                 output_format=FrameTexts,
             )
+            frames = _parsed(response).frames
         texts = [""] * len(images)
-        for frame in _parsed(response).frames:
+        for frame in frames:
             if 0 <= frame.index < len(images):
                 texts[frame.index] = frame.text
         return texts
@@ -142,4 +144,5 @@ class ClaudeVision:
     def read_frames(self, images: list[bytes]) -> list[str]:
         batches = [images[i : i + self.FRAMES_PER_CALL] for i in range(0, len(images), self.FRAMES_PER_CALL)]
         with ThreadPoolExecutor(max_workers=self.MAX_PARALLEL_CALLS) as pool:
-            return [text for batch in pool.map(self._read_batch, batches) for text in batch]
+            futures = [submit_timed(pool, self._read_batch, batch) for batch in batches]
+            return [text for future in futures for text in future.result()]

@@ -77,6 +77,7 @@ class VideoResponse(BaseModel):
     created_at: datetime
     progress: str | None = None  # 진행 중인 단계 (화면 표시용). log 의 마지막 줄
     log: list[str] = []  # 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 (화면 표시용)
+    log_times: list[datetime] = []  # 값은 log의 끝에서부터 대응한다.
     cached: bool = False
     transcript: TranscriptResult | None = None  # 추출이 끝나면 판별 전이라도 채워진다
     result: AnalysisResult | None = None  # status 가 done 일 때만 채워진다

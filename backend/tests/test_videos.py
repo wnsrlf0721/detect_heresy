@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -108,7 +109,9 @@ def analyze(client, url, sources=("caption", "ocr", "stt"), **body):
     return created, client.get(f"/videos/{created.json()['id']}").json()
 
 
-def test_video_is_extracted_analyzed_and_summarized(make_client):
+def test_video_is_extracted_analyzed_and_summarized(make_client, caplog):
+    caplog.set_level("INFO", logger="uvicorn.error.app.api.videos")
+    caplog.set_level("INFO", logger="uvicorn.error.app.timing")
     client = make_client([llm_finding(segment_index=0, quote="약속의 목자", score=85)])
 
     created, body = analyze(client, VIDEO_A)
@@ -123,6 +126,16 @@ def test_video_is_extracted_analyzed_and_summarized(make_client):
     assert [(f["time"], f["score"]) for f in body["result"]["findings"]] == [("00:10", 85)]
     assert body["topic"]["title"] == TOPICS["보혜사 강의 1"]
     assert body["progress"] is None
+    assert f"video_analysis.transcript_saved analysis_id={body['id']}" in caplog.text
+    assert f"video_analysis.topic_saved analysis_id={body['id']}" in caplog.text
+    assert f"video_analysis.result_saved analysis_id={body['id']}" in caplog.text
+    summary = next(message for message in caplog.messages if message.startswith("analysis.timing_summary "))
+    assert f"analysis_id={body['id']} kind=video status=done" in summary
+    stages = json.loads(summary.split(" stages=", 1)[1])
+    assert all(stages[key]["calls"] == 1 for key in (
+        "stt", "ocr", "topic_llm", "topic_embedding", "query_embedding", "reference_search", "verdict_llm", "db_write_result",
+    ))
+    assert len(body["log_times"]) == len(body["log"])
 
 
 def test_same_video_returns_saved_analysis(make_client):

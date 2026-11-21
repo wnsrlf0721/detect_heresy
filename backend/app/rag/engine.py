@@ -13,6 +13,7 @@ from app.rag.store import VectorStore
 from app.schemas.analysis import AnalysisResult, Finding, Reference, Segment
 from app.schemas.llm import LLMFinding
 from app.schemas.reference import Chunk, Verdict
+from app.timing import measure, submit_timed
 
 # 판별 결과가 달라지는 코드 변경을 하면 올린다. 저장된 영상 분석을 다시 쓰지 않게 된다(app/rag/version.py).
 ENGINE_REVISION = 2
@@ -103,7 +104,8 @@ class AnalysisEngine:
     def _screen_batch(self, system: str, start: int, batch: list[Segment], on_progress: Progress) -> list[int]:
         """한 묶음에서 고른 구간의 전체 번호. 선별이 실패하면 놓치지 않도록 묶음 전체를 정밀 분석한다."""
         try:
-            selection = self._screener.screen(system, prompts.filter_user_prompt(list(enumerate(batch))))
+            with measure("screening_llm"):
+                selection = self._screener.screen(system, prompts.filter_user_prompt(list(enumerate(batch))))
         except AnalysisError:
             on_progress(f"1차 선별 일부가 실패해, 그 구간 {len(batch)}개는 빠짐없이 정밀 분석합니다.")
             return list(range(start, start + len(batch)))
@@ -113,8 +115,8 @@ class AnalysisEngine:
         system = prompts.filter_system_prompt()
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
             futures = [
-                pool.submit(
-                    self._screen_batch, system, start, segments[start : start + SEGMENTS_PER_SCREEN_CALL], on_progress
+                submit_timed(
+                    pool, self._screen_batch, system, start, segments[start : start + SEGMENTS_PER_SCREEN_CALL], on_progress
                 )
                 for start in range(0, len(segments), SEGMENTS_PER_SCREEN_CALL)
             ]
@@ -161,14 +163,16 @@ class AnalysisEngine:
     def _analyze_batch(
         self, system: str, name: str, batch: list[Target], embeddings: list[list[float]], on_progress: Progress
     ) -> tuple[str, list[Finding]]:
-        refs = self._retrieve(embeddings)
+        with measure("reference_search"):
+            refs = self._retrieve(embeddings)
         # 이단 사례를 먼저 보여 준다. 같은 단체의 사례는 이름이 같아 한 번만 적는다.
         heresy_first = sorted(refs.values(), key=lambda c: c.kind != "heresy")
         labels = list(dict.fromkeys(reference_for(c).label for c in heresy_first))
         shown = ", ".join(labels[:LOG_REFERENCE_LABELS]) + (" 등" if len(labels) > LOG_REFERENCE_LABELS else "")
         on_progress(f"{name}: 비슷한 기준 자료 {len(refs)}건({shown})을 찾았습니다. 정통 교리와 비교해 판단하는 중입니다.")
         user = prompts.user_prompt(list(enumerate(batch)), list(refs.values()))
-        output = self._analyzer.analyze(system, user)
+        with measure("verdict_llm"):
+            output = self._analyzer.analyze(system, user)
         findings = [f for raw in output.findings if (f := self._to_finding(raw, batch, refs))]
         for finding in findings:
             on_progress(_finding_note(finding))
@@ -182,7 +186,8 @@ class AnalysisEngine:
         targets = with_context(segments)
         if self._screener and len(segments) > SCREEN_MIN_SEGMENTS:
             on_progress(f"구간이 {len(segments)}개로 많아, 교리를 다루는 발언을 먼저 고르는 중입니다.")
-            targets = [targets[i] for i in self._screen(segments, on_progress)]
+            with measure("screening"):
+                targets = [targets[i] for i in self._screen(segments, on_progress)]
             if not targets:
                 on_progress(NOTHING_TO_ANALYZE)
                 return AnalysisResult(verdict=Verdict.SAFE, score=0, summary=NOTHING_TO_ANALYZE, findings=[])
@@ -191,11 +196,13 @@ class AnalysisEngine:
 
         system = prompts.system_prompt()
         # 임베딩은 전체를 한 번에 요청해 호출 수를 줄인다. 검색에는 앞뒤 문맥까지 포함한 텍스트를 쓴다.
-        embeddings = self._embedder.embed([t.window_text for t in targets], "query")
+        with measure("query_embedding"):
+            embeddings = self._embedder.embed([t.window_text for t in targets], "query")
         starts = range(0, len(targets), SEGMENTS_PER_CALL)
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_CALLS) as pool:
             futures = [
-                pool.submit(
+                submit_timed(
+                    pool,
                     self._analyze_batch,
                     system,
                     f"묶음 {number}/{len(starts)}" if len(starts) > 1 else "검색 결과",

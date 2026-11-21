@@ -124,7 +124,8 @@ class PgRepository:
     def add_log(self, analysis_id: str, text: str) -> None:
         with psycopg.connect(self._url) as conn:
             conn.execute(
-                "UPDATE analyses SET progress = %s, log = array_append(log, %s) WHERE id = %s",
+                "UPDATE analyses SET progress = %s, log = array_append(log, %s),"
+                " log_times = array_append(log_times, clock_timestamp()) WHERE id = %s",
                 (text, text, analysis_id),
             )
 
@@ -191,21 +192,22 @@ class PgRepository:
     def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
-                "SELECT id::text, status, error, verdict, score, summary, log FROM analyses"
+                "SELECT id::text, status, error, verdict, score, summary, log, log_times FROM analyses"
                 " WHERE id::text = %s AND video_id IS NULL",
                 (analysis_id,),
             ).fetchone()
             if row is None:
                 return None
             return AnalysisResponse(
-                id=row[0], status=row[1], error=row[2], log=row[6], result=self._load_result(conn, row[0], *row[3:6])
+                id=row[0], status=row[1], error=row[2], log=row[6], log_times=row[7],
+                result=self._load_result(conn, row[0], *row[3:6]),
             )
 
     def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
         with psycopg.connect(self._url) as conn:
             row = conn.execute(
                 "SELECT a.id::text, a.status, v.url, a.sources, a.created_at, a.progress, a.error,"
-                " a.transcript_id::text, a.verdict, a.score, a.summary, a.log"
+                " a.transcript_id::text, a.verdict, a.score, a.summary, a.log, a.log_times"
                 " FROM analyses a JOIN videos v ON v.video_id = a.video_id WHERE a.id::text = %s",
                 (analysis_id,),
             ).fetchone()
@@ -220,6 +222,7 @@ class PgRepository:
                 created_at=row[4],
                 progress=row[5],
                 log=row[11],
+                log_times=row[12],
                 error=row[6],
                 transcript=stored.result if stored else None,
                 topic=stored.topic if stored else None,
@@ -358,6 +361,7 @@ class _Analysis:
     transcript_id: str | None = None
     progress: str | None = None
     log: list[str] = field(default_factory=list)
+    log_times: list[datetime] = field(default_factory=list)
     error: str | None = None
     result: AnalysisResult | None = None
 
@@ -409,6 +413,7 @@ class InMemoryRepository:
         analysis = self.analyses[analysis_id]
         analysis.progress = text
         analysis.log.append(text)
+        analysis.log_times.append(datetime.now(UTC))
 
     def save_transcript(
         self, analysis_id: str, video_id: str, transcript: TranscriptResult, *, automatic_speech: bool = False
@@ -438,7 +443,9 @@ class InMemoryRepository:
         a = self.analyses.get(analysis_id)
         if a is None or a.video_id is not None:
             return None
-        return AnalysisResponse(id=a.id, status=a.status, result=a.result, error=a.error, log=list(a.log))
+        return AnalysisResponse(
+            id=a.id, status=a.status, result=a.result, error=a.error, log=list(a.log), log_times=list(a.log_times)
+        )
 
     def get_video_analysis(self, analysis_id: str) -> VideoResponse | None:
         a = self.analyses.get(analysis_id)
@@ -453,6 +460,7 @@ class InMemoryRepository:
             created_at=a.created_at,
             progress=a.progress,
             log=list(a.log),
+            log_times=list(a.log_times),
             error=a.error,
             transcript=stored.result if stored else None,
             topic=stored.topic if stored else None,

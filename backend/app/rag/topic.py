@@ -5,6 +5,7 @@ from app.rag.embedder import Embedder
 from app.rag.llm import TopicWriter
 from app.schemas.transcript import TranscriptResult
 from app.schemas.video import VideoTopic
+from app.timing import measure
 
 
 def topic_text(topic: VideoTopic) -> str:
@@ -18,7 +19,10 @@ class TopicService:
         self._embedder = embedder
 
     def summarize(self, transcript: TranscriptResult) -> tuple[VideoTopic, list[float]]:
-        raw = self._writer.write(prompts.topic_system_prompt(), prompts.topic_user_prompt(transcript))
+        with measure("topic_llm"):
+            raw = self._writer.write(prompts.topic_system_prompt(), prompts.topic_user_prompt(transcript))
         topic = VideoTopic(title=raw.title, summary=raw.summary, keywords=raw.keywords)
         # 저장된 주제끼리 비교하므로 양쪽 모두 document 로 임베딩한다.
-        return topic, self._embedder.embed([topic_text(topic)], "document")[0]
+        with measure("topic_embedding"):
+            embedding = self._embedder.embed([topic_text(topic)], "document")[0]
+        return topic, embedding

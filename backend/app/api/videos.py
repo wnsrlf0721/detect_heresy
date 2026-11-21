@@ -1,6 +1,8 @@
+import logging
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from time import monotonic
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
@@ -24,8 +26,10 @@ from app.rag.topic import TopicService
 from app.schemas.analysis import JobStatus, Segment
 from app.schemas.transcript import check_youtube_url
 from app.schemas.video import VideoPreview, VideoRequest, VideoResponse
+from app.timing import measure, run_timed_job, submit_timed
 
 router = APIRouter(prefix="/videos", tags=["videos"])
+logger = logging.getLogger("uvicorn.error").getChild(__name__)
 
 RELATED_LIMIT = 5
 
@@ -37,15 +41,18 @@ def _source_counts(segments: list[Segment]) -> str:
     return ", ".join(f"{label} {counts[source]}구간" for source, label in SOURCE_LABEL.items() if counts[source])
 
 
-def summarize_topic(saved: StoredTranscript, topics: TopicService, repository: Repository, log) -> None:
+def summarize_topic(analysis_id: str, saved: StoredTranscript, topics: TopicService, repository: Repository, log) -> None:
     """영상 요약(대주제)은 추출 결과마다 한 번만 정리한다. 비슷한 영상을 잇는 부가 정보라, 실패해도 판별은 그대로 둔다."""
     log("영상 내용을 요약하는 중입니다.")
     try:
         topic, embedding = topics.summarize(saved.result)
     except AnalysisError:
+        logger.warning("video_analysis.topic_failed analysis_id=%s transcript_id=%s", analysis_id, saved.id)
         log("영상 요약을 만들지 못했습니다. 판별은 계속합니다.")
         return
-    repository.save_topic(saved.id, topic, embedding)
+    with measure("db_write_topic"):
+        repository.save_topic(saved.id, topic, embedding)
+    logger.info("video_analysis.topic_saved analysis_id=%s transcript_id=%s", analysis_id, saved.id)
     log(f"영상 요약을 정리했습니다: {topic.title}")
 
 
@@ -57,23 +64,44 @@ def run_video(
     engine: AnalysisEngine,
     topics: TopicService,
     repository: Repository,
-) -> None:
+) -> bool:
     """추출(저장된 것이 있으면 재사용) → 요약과 판별을 동시에. 단계마다 저장해 GET 으로 진행 과정을 볼 수 있게 한다."""
 
     def log(text: str) -> None:
-        repository.add_log(job.id, text)
+        with measure("db_progress"):
+            repository.add_log(job.id, text)
 
+    started = monotonic()
+    stage = "start"
     automatic_speech = not job.sources
     try:
-        repository.set_status(job.id, JobStatus.RUNNING)
+        with measure("db_status"):
+            repository.set_status(job.id, JobStatus.RUNNING)
         if saved is None:
-            transcript = pipeline.run(job.url, log, automatic_speech=automatic_speech)
-            saved = repository.save_transcript(job.id, video_id, transcript, automatic_speech=automatic_speech)
+            stage = "extract"
+            logger.info("video_analysis.extraction_started analysis_id=%s video_id=%s", job.id, video_id)
+            with measure("extraction"):
+                transcript = pipeline.run(job.url, log, automatic_speech=automatic_speech)
+            stage = "save_transcript"
+            with measure("db_write_transcript"):
+                saved = repository.save_transcript(job.id, video_id, transcript, automatic_speech=automatic_speech)
+            counts = Counter(segment.source for segment in transcript.segments)
+            logger.log(
+                logging.WARNING if transcript.warnings else logging.INFO,
+                "video_analysis.transcript_saved analysis_id=%s transcript_id=%s duration_s=%d "
+                "caption=%d stt=%d ocr=%d warnings=%d",
+                job.id, saved.id, transcript.duration, counts["caption"], counts["stt"], counts["ocr"],
+                len(transcript.warnings),
+            )
         else:
-            repository.use_transcript(job.id, saved.id)
+            stage = "reuse_transcript"
+            with measure("db_reuse_transcript"):
+                repository.use_transcript(job.id, saved.id)
+            logger.info("video_analysis.transcript_reused analysis_id=%s transcript_id=%s", job.id, saved.id)
             log(f"이 영상에서 이전에 추출한 텍스트({_source_counts(saved.result.segments)})를 다시 씁니다.")
         log(f"자막·음성·화면 글자에서 겹치는 내용을 합쳐 {len(saved.result.merged)}줄로 정리했습니다.")
 
+        stage = "select_segments"
         picked = [
             (segment, segment_id)
             for segment, segment_id in zip(saved.result.segments, saved.segment_ids, strict=True)
@@ -84,17 +112,37 @@ def run_video(
         log(f"판별에는 {_source_counts([s for s, _ in picked])}을 씁니다.")
 
         # 요약은 판별보다 빨리 끝나므로, 동시에 돌려 판별을 기다리는 동안 화면에 먼저 보여 준다.
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            summary = pool.submit(summarize_topic, saved, topics, repository, log) if saved.topic is None else None
-            result = engine.analyze([s for s, _ in picked], log)
+        stage = "analyze"
+        logger.info("video_analysis.started analysis_id=%s segments=%d", job.id, len(picked))
+        with measure("analysis_and_topic"), ThreadPoolExecutor(max_workers=1) as pool:
+            summary = (
+                submit_timed(pool, summarize_topic, job.id, saved, topics, repository, log) if saved.topic is None else None
+            )
+            with measure("verdict"):
+                result = engine.analyze([s for s, _ in picked], log)
             if summary is not None:
+                stage = "summarize_topic"
                 summary.result()  # 요약 쪽의 예상하지 못한 오류도 작업 실패로 알린다
-        repository.save_result(job.id, result, [i for _, i in picked])
-        repository.set_status(job.id, JobStatus.DONE)
+        stage = "save_result"
+        with measure("db_write_result"):
+            repository.save_result(job.id, result, [i for _, i in picked])
+        stage = "mark_done"
+        with measure("db_status"):
+            repository.set_status(job.id, JobStatus.DONE)
+        logger.info(
+            "video_analysis.result_saved analysis_id=%s verdict=%s score=%d findings=%d elapsed_s=%.2f",
+            job.id, result.verdict.value, result.score, len(result.findings), monotonic() - started,
+        )
+        return True
     except AnalysisError as e:
-        repository.set_status(job.id, JobStatus.FAILED, error=str(e))
+        logger.warning("video_analysis.failed analysis_id=%s stage=%s error=%s", job.id, stage, type(e).__name__)
+        with measure("db_status"):
+            repository.set_status(job.id, JobStatus.FAILED, error=str(e))
     except Exception as e:  # 백그라운드 작업이라, 여기서 놓치면 작업이 영영 running 으로 남는다.
-        repository.set_status(job.id, JobStatus.FAILED, error=f"영상 분석 중 오류가 났습니다: {e}")
+        logger.error("video_analysis.failed analysis_id=%s stage=%s error=%s", job.id, stage, type(e).__name__)
+        with measure("db_status"):
+            repository.set_status(job.id, JobStatus.FAILED, error=f"영상 분석 중 오류가 났습니다: {e}")
+    return False
 
 
 def _with_related(job: VideoResponse, repository: Repository, min_similarity: float) -> VideoResponse:
@@ -123,7 +171,10 @@ def create_video(
         if existing is not None:
             if existing.status == JobStatus.DONE:
                 response.status_code = 200
-                return _with_related(existing, repository, min_similarity).model_copy(update={"cached": True})
+                cached = _with_related(existing, repository, min_similarity).model_copy(update={"cached": True})
+                logger.info("video_analysis.result_reused analysis_id=%s video_id=%s", existing.id, video_id)
+                return cached
+            logger.info("video_analysis.job_reused analysis_id=%s video_id=%s", existing.id, video_id)
             return existing  # 같은 분석이 진행 중이면 그 작업을 같이 기다린다.
 
     # 판별 기준이나 출처만 바뀐 경우에는 내려받기와 음성 인식을 다시 하지 않는다.
@@ -136,7 +187,8 @@ def create_video(
         created_at=datetime.now(UTC),
     )
     repository.create_video_analysis(job, video_id, version)
-    background.add_task(run_video, job, video_id, saved, pipeline, engine, topics, repository)
+    logger.info("video_analysis.job_saved analysis_id=%s video_id=%s force=%s", job.id, video_id, request.force)
+    background.add_task(run_timed_job, "video", job.id, run_video, job, video_id, saved, pipeline, engine, topics, repository)
     return job
 
 
@@ -159,6 +211,7 @@ def preview_video(
     except VideoNotFound as e:
         raise HTTPException(status_code=404, detail="영상이 없거나 비공개 영상입니다.") from e
     except AnalysisError as e:
+        logger.warning("video_preview.failed video_id=%s error=%s", video_id, type(e).__name__)
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 

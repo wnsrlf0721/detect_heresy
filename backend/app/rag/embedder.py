@@ -4,6 +4,7 @@ from typing import Literal, Protocol
 import httpx
 
 from app.errors import AnalysisError
+from app.timing import measure
 
 InputType = Literal["document", "query"]
 
@@ -38,14 +39,20 @@ class VoyageEmbedder:
         """요청 한도(429)에 걸리면 기다렸다가 다시 보낸다. 무료 등급은 분당 요청 수가 적다."""
         for attempt in range(self.MAX_ATTEMPTS):
             try:
-                response = self._client.post(self.URL, json=payload)
-                if response.status_code == 429 and attempt < self.MAX_ATTEMPTS - 1:
-                    time.sleep(_retry_delay(response, attempt))
-                    continue
-                response.raise_for_status()
+                with measure("voyage_http"):
+                    response = self._client.post(self.URL, json=payload)
+                    response.raise_for_status()
+                return response
             except httpx.HTTPError as e:
+                if (
+                    isinstance(e, httpx.HTTPStatusError)
+                    and e.response.status_code == 429
+                    and attempt < self.MAX_ATTEMPTS - 1
+                ):
+                    with measure("voyage_rate_limit_wait"):
+                        time.sleep(_retry_delay(e.response, attempt))
+                    continue
                 raise AnalysisError(f"임베딩 요청 실패: {e}") from e
-            return response
         raise AssertionError("unreachable")
 
 

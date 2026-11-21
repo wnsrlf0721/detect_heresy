@@ -6,6 +6,7 @@ from typing import Protocol
 from app.errors import AnalysisError
 from app.media import format_time
 from app.schemas.analysis import Segment
+from app.timing import measure
 
 MIN_CONFIDENCE = 0.4
 # 직전 구간과 이만큼 비슷하면 같은 화면 글자로 보고 다시 싣지 않는다.
@@ -86,7 +87,8 @@ class VisionFrameReader:
         self._interval = interval_seconds
 
     def read(self, video_path: Path) -> list[Segment]:
-        frames = [(seconds, encode_jpeg(frame)) for seconds, frame in sample_frames(video_path, self._interval)]
+        with measure("ocr_frame_preparation"):
+            frames = [(seconds, encode_jpeg(frame)) for seconds, frame in sample_frames(video_path, self._interval)]
         texts = self._vision.read_frames([image for _, image in frames])
         return dedupe([(seconds, text) for (seconds, _), text in zip(frames, texts, strict=True)])
 

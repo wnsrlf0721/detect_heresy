@@ -1,5 +1,6 @@
 """판별 API(/analyses)의 요청·응답 스키마."""
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -79,5 +80,6 @@ class AnalysisResponse(BaseModel):
     id: str
     status: JobStatus
     log: list[str] = []  # 진행 과정. 판별에서 실제로 한 일을 한 줄씩 (화면 표시용)
+    log_times: list[datetime] = []  # 기록 시각이 있는 로그만 보관한다. 값은 log의 끝에서부터 대응한다.
     result: AnalysisResult | None = None  # status 가 done 일 때만 채워진다
     error: str | None = None

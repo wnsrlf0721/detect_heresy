@@ -348,8 +348,12 @@ function logTone(line: string): string | null {
   return score ? TONE[verdictOf(Number(score[1]))].text : null;
 }
 
+const progressClock = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit",
+});
+
 /** AI 진행 과정. 추출과 판별에서 실제로 한 일이 한 줄씩 쌓인다. 진행 중이면 마지막 줄이 지금 하는 일이다. */
-export function ThinkingLog({ lines, running }: { lines: string[]; running: boolean }) {
+export function ThinkingLog({ lines, times, running }: { lines: string[]; times: string[]; running: boolean }) {
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
     if (running) list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" });
@@ -362,9 +366,15 @@ export function ThinkingLog({ lines, running }: { lines: string[]; running: bool
     <ol ref={list} className="max-h-72 space-y-1.5 overflow-y-auto border-l-2 border-zinc-200 pl-4 text-sm leading-6">
       {lines.map((line, index) => {
         const current = running && index === lines.length - 1;
+        const timestamp = times[index - (lines.length - times.length)];
         return (
           <li key={index} className={`animate-log-in ${logTone(line) ?? (current ? "text-zinc-900" : "text-zinc-500")}`}>
             {current && <span className="mr-2 inline-block h-2 w-2 animate-ping rounded-full bg-zinc-900 align-middle" />}
+            {timestamp && (
+              <time dateTime={timestamp} title={timestamp} className="mr-2 whitespace-nowrap font-mono text-xs text-zinc-500">
+                {progressClock.format(new Date(timestamp))}
+              </time>
+            )}
             <span className={current ? "animate-pulse" : ""}>{line}</span>
           </li>
         );

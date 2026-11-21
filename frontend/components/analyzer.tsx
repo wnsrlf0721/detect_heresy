@@ -147,7 +147,8 @@ export function Analyzer() {
   const [text, setText] = useState("");
 
   const [phase, setPhase] = useState<Phase>("idle");
-  const [log, setLog] = useState<string[]>([]);
+  const [progress, setProgress] = useState<{ lines: string[]; times: string[] }>({ lines: [], times: [] });
+  const log = progress.lines;
   const [error, setError] = useState<string | null>(null);
   const [video, setVideo] = useState<VideoResponse | null>(null);
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
@@ -176,7 +177,7 @@ export function Analyzer() {
       await createAnalysis(segments),
       getAnalysis,
       () => run === runId.current,
-      (job) => setLog(job.log),
+      (job) => setProgress({ lines: job.log, times: job.log_times ?? [] }),
     );
     if (!analysis) return;
     if (analysis.status !== "done" || !analysis.result) {
@@ -195,7 +196,7 @@ export function Analyzer() {
       getVideo,
       () => run === runId.current,
       (job) => {
-        setLog(job.log);
+        setProgress({ lines: job.log, times: job.log_times ?? [] });
         setVideo(job);
         if (job.transcript) {
           setTranscript(job.transcript);
@@ -214,7 +215,7 @@ export function Analyzer() {
 
   function reset(): number {
     setError(null);
-    setLog([]);
+    setProgress({ lines: [], times: [] });
     setVideo(null);
     setTranscript(null);
     setResult(null);
@@ -245,7 +246,7 @@ export function Analyzer() {
       setUrl(job.url);
       setVideoId(youtubeId(job.url));
       setVideo({ ...job, cached: true });
-      setLog(job.log);
+      setProgress({ lines: job.log, times: job.log_times ?? [] });
       setTranscript(job.transcript);
       setResult(job.result);
       setPhase("done");
@@ -402,7 +403,7 @@ export function Analyzer() {
               </ol>
               <h3 className="mt-6 text-xs font-semibold text-zinc-500">AI 진행 과정</h3>
               <div className="mt-2">
-                <ThinkingLog lines={log} running />
+                <ThinkingLog lines={log} times={progress.times} running />
               </div>
               <p className="mt-4 text-sm text-zinc-500">
                 {Math.floor(elapsed / 60)}분 {elapsed % 60}초 경과 · 분석 시간은 영상과 판별할 구간 수에 따라 달라집니다.
@@ -454,7 +455,7 @@ export function Analyzer() {
             AI 진행 과정 {log.length}단계 보기
           </summary>
           <div className="mt-4">
-            <ThinkingLog lines={log} running={false} />
+            <ThinkingLog lines={log} times={progress.times} running={false} />
           </div>
         </details>
       )}
