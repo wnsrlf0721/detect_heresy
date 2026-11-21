@@ -3,7 +3,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from time import monotonic
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 
@@ -25,7 +25,7 @@ from app.rag.engine import AnalysisEngine
 from app.rag.topic import TopicService
 from app.schemas.analysis import JobStatus, Segment
 from app.schemas.transcript import check_youtube_url
-from app.schemas.video import VideoPreview, VideoRequest, VideoResponse
+from app.schemas.video import VideoPreview, VideoRequest, VideoResponse, VideoStatus
 from app.timing import measure, run_timed_job, submit_timed
 
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -213,6 +213,14 @@ def preview_video(
     except AnalysisError as e:
         logger.warning("video_preview.failed video_id=%s error=%s", video_id, type(e).__name__)
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/{job_id}/status", response_model=VideoStatus)
+def get_video_status(job_id: UUID, repository: Repository = Depends(get_repository)) -> VideoStatus:
+    job = repository.get_video_status(str(job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="영상 분석 작업을 찾을 수 없습니다.")
+    return job
 
 
 @router.get("/{job_id}", response_model=VideoResponse)

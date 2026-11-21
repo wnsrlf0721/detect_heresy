@@ -17,7 +17,7 @@ from app.rag.store import cosine_distance, vector_literal
 from app.schemas.analysis import AnalysisResponse, AnalysisResult, Finding, JobStatus, Reference, Segment
 from app.schemas.reference import Chunk
 from app.schemas.transcript import TranscriptResult
-from app.schemas.video import RelatedVideo, VideoResponse, VideoTopic
+from app.schemas.video import RelatedVideo, VideoResponse, VideoStatus, VideoTopic
 
 
 @dataclass
@@ -60,6 +60,8 @@ class Repository(Protocol):
     def get_text_analysis(self, analysis_id: str) -> AnalysisResponse | None: ...
 
     def get_video_analysis(self, analysis_id: str) -> VideoResponse | None: ...
+
+    def get_video_status(self, analysis_id: str) -> VideoStatus | None: ...
 
     def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
         """같은 영상·출처·버전의 가장 최근 작업. 끝났거나 아직 진행 중인 것만 찾는다.
@@ -228,6 +230,14 @@ class PgRepository:
                 topic=stored.topic if stored else None,
                 result=self._load_result(conn, row[0], *row[8:11]),
             )
+
+    def get_video_status(self, analysis_id: str) -> VideoStatus | None:
+        with psycopg.connect(self._url) as conn:
+            row = conn.execute(
+                "SELECT id::text, status, progress FROM analyses WHERE id = %s::uuid AND video_id IS NOT NULL",
+                (analysis_id,),
+            ).fetchone()
+        return VideoStatus(id=row[0], status=row[1], progress=row[2]) if row else None
 
     def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
         with psycopg.connect(self._url) as conn:
@@ -466,6 +476,12 @@ class InMemoryRepository:
             topic=stored.topic if stored else None,
             result=a.result,
         )
+
+    def get_video_status(self, analysis_id: str) -> VideoStatus | None:
+        analysis = self.analyses.get(analysis_id)
+        if analysis is None or analysis.video_id is None:
+            return None
+        return VideoStatus(id=analysis.id, status=analysis.status, progress=analysis.progress)
 
     def find_video_analysis(self, video_id: str, sources: list[str], version: str) -> VideoResponse | None:
         for a in self._latest_first():

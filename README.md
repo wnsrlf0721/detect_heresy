@@ -60,6 +60,20 @@ tail -f "log/frontend/$log_date.log" "log/backend/$log_date.log"
 
 PowerShell에서는 `Get-Content -Wait "log/backend/$(Get-Date -Format yyyy-MM-dd).log"`로 볼 수 있습니다(PC가 한국 시간인 경우). 자정 이후부터 로그는 새 날짜 파일에 기록되므로, 새 로그가 생기면 오늘 날짜로 `tail`을 다시 실행합니다. `docker compose logs -f frontend backend`도 사용할 수 있습니다.
 
+## Chrome 확장 프로그램
+
+확장 프로그램의 소스는 `extension/`에 있습니다. 웹 앱에서 URL이나 문장을 붙여 분석하는 방법도 사용할 수 있습니다.
+
+1. Docker Compose 서비스를 실행하고 `http://localhost:3000`을 엽니다.
+2. Chrome에서 `chrome://extensions`를 열고 **개발자 모드 → 압축해제된 확장 프로그램을 로드합니다**를 선택해 `extension/` 폴더를 지정합니다.
+3. 확장 프로그램의 팝업에서 전송 안내를 읽고 자동 분석을 켭니다. 이미 열어둔 유튜브 탭은 확장 프로그램을 처음 로드하거나 업데이트한 뒤 새로고침합니다. 재생 후 팝업에서 경과 시간과 서버가 보고한 진행 단계를, 완료 시 알림이나 **최근 결과 보기**에서 결과를 확인합니다.
+
+확장 프로그램은 `http://localhost:3000/api`의 기존 영상 분석 API를 사용합니다. 새 탭에서는 `/result?analysis=<분석 ID>`로 해당 작업의 저장 결과를 조회합니다. 자동 분석을 끄면 새 요청과 상태 조회를 멈춥니다. 이미 접수된 작업은 서버에서 처리됩니다.
+
+API 요청은 호스트 권한이 설정된 서비스 워커가 보냅니다. 서버 CORS에서도 특정 확장 프로그램 출처를 허용하려면 `.env`의 `CORS_EXTENSION_IDS`에 실제 확장 프로그램 ID를 JSON 배열로 넣고 `docker compose up -d backend`로 적용합니다.
+
+스토어 배포용은 운영 HTTPS 주소를 정한 뒤 `extension/site.js`의 주소와 `manifest.json`의 호스트 권한을 함께 바꿉니다. 운영 서버의 분석 요청 접근·사용량 정책을 정하고, `/privacy`의 처리 안내에 실제 운영자 연락처와 보관·삭제 기준을 반영합니다. 스토어에 올릴 때는 `manifest.json`이 ZIP의 최상위에 오게 패키징합니다.
+
 ## 로컬 개발 준비물
 
 - Docker Desktop

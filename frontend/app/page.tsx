@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Analyzer } from "@/components/analyzer";
 
 export default function Home() {
@@ -11,7 +13,8 @@ export default function Home() {
       </header>
       <Analyzer />
       <footer className="mt-10 text-sm leading-6 text-zinc-500">
-        이 결과는 AI가 만든 참고 자료이며 최종 판단이 아닙니다. 비교 기준이 되는 교리 자료는 아직 원출처와 대조하지 않은 초안입니다.
+        <p>이 결과는 AI가 만든 참고 자료이며 최종 판단이 아닙니다. 비교 기준이 되는 교리 자료는 아직 원출처와 대조하지 않은 초안입니다.</p>
+        <Link href="/privacy" className="mt-2 inline-block underline">개인정보 처리 안내</Link>
       </footer>
     </main>
   );

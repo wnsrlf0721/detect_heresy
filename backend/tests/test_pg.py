@@ -163,6 +163,9 @@ def test_video_analysis_roundtrip(database_url):
     stored = repository.save_transcript(a.id, "AAAAAAAAAAA", transcript)
     running = repository.find_video_analysis("AAAAAAAAAAA", a.sources, "v1")  # 진행 중인 작업도 찾는다
     assert (running.status, running.progress, running.transcript, running.result) == ("running", "내려받는 중", transcript, None)
+    assert repository.get_video_status(a.id).model_dump() == {
+        "id": a.id, "status": JobStatus.RUNNING, "progress": "내려받는 중",
+    }
     assert repository.find_transcript("AAAAAAAAAAA", automatic_speech=True) is None
     assert running.log == ["영상을 내려받는 중입니다.", "내려받는 중"]
     assert len(running.log_times) == len(running.log)

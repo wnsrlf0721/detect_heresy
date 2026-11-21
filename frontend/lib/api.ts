@@ -144,8 +144,8 @@ export function createVideo(url: string, force = false): Promise<VideoResponse> 
   return request("/videos", { method: "POST", body: JSON.stringify({ url, force }) });
 }
 
-export function getVideo(id: string): Promise<VideoResponse> {
-  return request(`/videos/${id}`);
+export function getVideo(id: string, signal?: AbortSignal): Promise<VideoResponse> {
+  return request(`/videos/${encodeURIComponent(id)}`, { signal });
 }
 
 /** 분석 전에 주소가 맞는 영상인지 확인한다. 주소가 잘못되면 422, 영상이 없거나 비공개면 404 다. */

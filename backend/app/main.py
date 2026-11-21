@@ -21,9 +21,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="이단성 분석 서비스", lifespan=lifespan)
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origins,
+    allow_origins=[*settings.cors_origins, *(f"chrome-extension://{id}" for id in settings.cors_extension_ids)],
     allow_methods=["*"],
     allow_headers=["*"],
 )

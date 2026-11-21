@@ -162,6 +162,9 @@ def test_automatic_analysis_uses_its_own_transcript_and_cache(make_client):
     assert {s["source"] for s in first["transcript"]["segments"]} == {"caption"}
     assert 'source="stt"' not in client.analyzer.calls[-1][1]
     assert len(client.source.fetched) == 2
+    assert client.get(f"/videos/{first['id']}/status").json() == {
+        "id": first["id"], "status": "done", "progress": None,
+    }
 
     cached, _ = analyze(client, VIDEO_A, sources=None)
     assert cached.status_code == 200 and cached.json()["id"] == first["id"]

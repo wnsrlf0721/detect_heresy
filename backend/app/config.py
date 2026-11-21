@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     max_video_seconds: int = 30 * 60
 
     cors_origins: list[str] = ["http://localhost:3000"]
+    cors_extension_ids: list[Annotated[str, Field(pattern=r"^[a-p]{32}$")]] = []
 
 
 @lru_cache

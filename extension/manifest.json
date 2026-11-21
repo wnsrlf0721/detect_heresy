@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "이단성 분석",
+  "description": "유튜브 재생을 감지해 영상 분석을 요청하고 완료 결과를 엽니다.",
+  "version": "0.1.1",
+  "minimum_chrome_version": "120",
+  "permissions": ["storage", "alarms", "notifications"],
+  "host_permissions": ["http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_icon": "icon.png" },
+  "icons": { "128": "icon.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["youtube.js", "content.js"]
+    }
+  ]
+}

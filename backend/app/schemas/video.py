@@ -66,16 +66,19 @@ class RelatedVideo(BaseModel):
     created_at: datetime
 
 
-class VideoResponse(BaseModel):
+class VideoStatus(BaseModel):
+    id: str
+    status: JobStatus
+    progress: str | None = None
+
+
+class VideoResponse(VideoStatus):
     """작업 형태의 응답. pending 으로 먼저 돌려주고 GET 으로 상태를 확인한다.
     저장된 분석을 돌려줄 때는 처음부터 done 이고 cached 가 true 다."""
 
-    id: str
-    status: JobStatus
     url: str
     sources: list[VideoSource]
     created_at: datetime
-    progress: str | None = None  # 진행 중인 단계 (화면 표시용). log 의 마지막 줄
     log: list[str] = []  # 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 (화면 표시용)
     log_times: list[datetime] = []  # 값은 log의 끝에서부터 대응한다.
     cached: bool = False

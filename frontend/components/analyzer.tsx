@@ -141,19 +141,19 @@ function Step({ label, state }: { label: string; state: "wait" | "run" | "done" 
   );
 }
 
-export function Analyzer() {
+export function Analyzer({ initialVideo }: { initialVideo?: VideoResponse }) {
   const [mode, setMode] = useState<Mode>("video");
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialVideo?.url ?? "");
   const [text, setText] = useState("");
 
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState<{ lines: string[]; times: string[] }>({ lines: [], times: [] });
+  const [phase, setPhase] = useState<Phase>(initialVideo ? "done" : "idle");
+  const [progress, setProgress] = useState({ lines: initialVideo?.log ?? [], times: initialVideo?.log_times ?? [] });
   const log = progress.lines;
   const [error, setError] = useState<string | null>(null);
-  const [video, setVideo] = useState<VideoResponse | null>(null);
-  const [transcript, setTranscript] = useState<TranscriptResult | null>(null);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [videoId, setVideoId] = useState<string | null>(null);
+  const [video, setVideo] = useState<VideoResponse | null>(initialVideo ?? null);
+  const [transcript, setTranscript] = useState<TranscriptResult | null>(initialVideo?.transcript ?? null);
+  const [result, setResult] = useState<AnalysisResult | null>(initialVideo?.result ?? null);
+  const [videoId, setVideoId] = useState<string | null>(initialVideo ? youtubeId(initialVideo.url) : null);
   const [startAt, setStartAt] = useState<number | null>(null);
   const [active, setActive] = useState<number | null>(null);
 
