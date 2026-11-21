@@ -1,4 +1,56 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_INTERNAL_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    # Docker가 처음 만든 호스트 로그 디렉터리는 root 소유일 수 있다.
+    user: "0:0"
+    environment:
+      APP_RUN_AS_NODE: "1"
+      LOG_TZ: ${LOG_TZ:-Asia/Seoul}
+    entrypoint: ["node", "/usr/local/lib/log-to-file.cjs"]
+    command: ["node", "server.js"]
+    volumes:
+      - ./docker/log-to-file.cjs:/usr/local/lib/log-to-file.cjs:ro
+      - ./log/frontend:/var/log/app
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(response => { if (!response.ok) process.exitCode = 1 })"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://heresy:heresy@db:5432/heresy
+      LOG_TZ: ${LOG_TZ:-Asia/Seoul}
+    entrypoint: ["node", "/usr/local/lib/log-to-file.cjs"]
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    volumes:
+      - ./docker/log-to-file.cjs:/usr/local/lib/log-to-file.cjs:ro
+      - ./log/backend:/var/log/app
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   db:
     image: pgvector/pgvector:pg17
     environment:
@@ -6,11 +58,11 @@ services:
       POSTGRES_PASSWORD: heresy
       POSTGRES_DB: heresy
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U heresy"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "heresy", "-d", "heresy"]
       interval: 5s
       timeout: 3s
       retries: 10

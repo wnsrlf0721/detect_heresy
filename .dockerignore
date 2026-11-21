@@ -1,0 +1,12 @@
+**
+!backend/
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/app/
+!backend/app/**
+!backend/scripts/
+!backend/scripts/**
+!data/
+!data/**
+**/__pycache__/
+**/.env*

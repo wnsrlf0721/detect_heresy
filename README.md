@@ -23,7 +23,44 @@
 | 백엔드 API | http://localhost:8000 (API 문서는 `/docs`) |
 | DB | localhost:5432 |
 
-## 준비물
+## Docker Compose로 실행
+
+Docker Desktop을 켜거나 Linux에서 Docker Engine과 Compose를 설치한 뒤, 저장소 루트에서 실행합니다.
+분석 기능을 쓰려면 먼저 `.env.example`을 `.env`로 복사하고 `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`를 채웁니다. 음성 인식을 쓰려면 `OPENAI_API_KEY`도 넣습니다.
+
+```sh
+docker compose up --build -d --wait
+```
+
+화면은 http://localhost:3000, API 동작 확인은 http://localhost:3000/api/health 에서 할 수 있습니다.
+같은 컴퓨터에서는 http://localhost:8000/docs 에서 API 문서를 열 수 있습니다.
+DB 스키마는 백엔드가 시작할 때 초기화됩니다. 새 DB를 쓰거나 `data/`를 수정해 이미지를 다시 빌드한 경우 분석 전에 기준 데이터를 적재합니다. 이 명령은 Voyage API를 호출합니다.
+
+```sh
+docker compose exec backend python -m scripts.ingest
+```
+
+이미 이 저장소에서 `docker compose up -d db`로 쓰던 DB가 있다면 `pgdata` 볼륨을 그대로 사용합니다. `docker compose down`으로 종료해도 DB 데이터는 남습니다.
+기본 컨테이너는 AI API를 사용하는 구성입니다. `STT_BACKEND=local`이나 `OCR_BACKEND=local`로 실행하려면 아래의 로컬 개발 방식을 사용합니다.
+
+### 로그 확인
+
+프론트와 백엔드의 표준 출력과 오류는 저장소 루트의 `log/frontend/`와 `log/backend/`에 `YYYY-MM-DD.log`로 쌓입니다. 날짜는 기본으로 한국 시간(`Asia/Seoul`)을 사용합니다. 다른 시간대를 쓰려면 루트 `.env`에 `LOG_TZ`를 설정합니다.
+
+새 로그 줄에는 밀리초와 시간대가 포함된 시각이 붙습니다. 웹 화면의 분석 진행 기록에도 한국 시간으로 시각을 표시합니다.
+
+Docker 실행 시 헬스체크와 분석 상태 조회 같은 일상적인 HTTP 접근 로그는 기록하지 않습니다. 백엔드 로그에서는 `analysis_id`로 작업 접수, 분석 시작, 추출·요약·결과 저장, 기존 결과 재사용과 실패 단계를 추적할 수 있습니다. 입력 문장과 분석 원문은 이 운영 로그에 넣지 않습니다. 화면의 상세 진행 과정은 DB에 계속 저장됩니다.
+
+작업이 종료되면 `analysis.timing_summary`에 영상·텍스트 작업의 처리 시간이 기록됩니다. `elapsed_s`는 백그라운드 작업 전체 시간입니다. 단계별 `busy_s`는 **같은 단계에서** 겹쳐 실행한 시간을 한 번만 센 값, `sum_s`는 모든 호출 시간의 합, `max_s`는 가장 오래 걸린 호출 시간입니다. `calls`와 `failed`는 실행 횟수와 실패 횟수입니다. 추출 전체와 OCR처럼 상위·하위 단계가 있고 음성·OCR이나 요약·판정도 병렬로 실행되므로 단계별 시간은 합산하지 않습니다. 재사용이나 수동 자막 선택 때문에 건너뛴 단계는 목록에 나오지 않습니다.
+
+```sh
+log_date=$(TZ=Asia/Seoul date +%F)
+tail -f "log/frontend/$log_date.log" "log/backend/$log_date.log"
+```
+
+PowerShell에서는 `Get-Content -Wait "log/backend/$(Get-Date -Format yyyy-MM-dd).log"`로 볼 수 있습니다(PC가 한국 시간인 경우). 자정 이후부터 로그는 새 날짜 파일에 기록되므로, 새 로그가 생기면 오늘 날짜로 `tail`을 다시 실행합니다. `docker compose logs -f frontend backend`도 사용할 수 있습니다.
+
+## 로컬 개발 준비물
 
 - Docker Desktop
 - Python 3.12 이상과 [uv](https://docs.astral.sh/uv/). uv는 백엔드의 가상환경(`backend/.venv`)을 만들고 패키지를 설치할 때만 씁니다. `py -m pip install --user uv`로 설치합니다.
@@ -35,7 +72,7 @@
 
 AI 작업은 모두 API로 처리하므로 GPU나 ffmpeg 설치가 필요 없습니다.
 
-## 실행 방법
+## 로컬 개발 실행 방법
 
 ### 1. 환경 변수
 

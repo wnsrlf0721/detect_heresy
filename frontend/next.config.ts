@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
+const apiInternalUrl = process.env.API_INTERNAL_URL;
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  ...(apiInternalUrl && {
+    output: "standalone",
+    async rewrites() {
+      return [{ source: "/api/:path*", destination: `${apiInternalUrl}/:path*` }];
+    },
+  }),
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
