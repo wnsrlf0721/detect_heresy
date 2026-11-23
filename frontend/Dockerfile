@@ -6,10 +6,14 @@ RUN npm ci
 COPY . .
 
 ARG API_INTERNAL_URL=http://backend:8000
+ARG API_INTERNAL_HOSTPORT
 ENV API_INTERNAL_URL=$API_INTERNAL_URL \
     NEXT_PUBLIC_API_URL=/api \
     NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN if [ -n "$API_INTERNAL_HOSTPORT" ]; then \
+        export API_INTERNAL_URL="http://$API_INTERNAL_HOSTPORT"; \
+    fi \
+    && npm run build
 
 FROM node:24-bookworm-slim
 WORKDIR /app
