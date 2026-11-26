@@ -104,6 +104,7 @@ ORDER BY kind;
 | `id` | uuid, PK | |
 | `video_id` | text, FK → `videos` | 텍스트 직접 입력이면 비어 있음 |
 | `warnings` | text[] | 일부 출처를 추출하지 못한 이유. 예: 음성 인식 API 오류 |
+| `automatic_speech` | boolean | 영상의 자동 출처 선택 여부. 같은 모드의 기존 추출 결과를 찾을 때 사용 |
 | `topic_title`, `topic_summary`, `topic_keywords` | text, text, text[] | 영상 대주제. 정리에 실패하면 비어 있고, 다음 분석 때 다시 시도함 |
 | `topic_embedding` | vector(1024) | 대주제 임베딩. 비슷한 주제의 영상을 찾는 데 씀 |
 | `created_at` | timestamptz | 추출한 시각 |
@@ -128,11 +129,12 @@ ORDER BY kind;
 | `id` | uuid, PK | `GET /videos/{id}`, `GET /analyses/{id}`의 id |
 | `video_id` | text, FK → `videos` | 텍스트 판별이면 비어 있음. 추출이 끝나기 전에도 같은 영상의 진행 중인 분석을 찾을 수 있게 둠 |
 | `transcript_id` | uuid, FK → `transcripts` | 판별한 추출 결과. 영상 분석은 추출이 끝나야 채워짐 |
-| `sources` | text[] | 판별에 쓴 출처. 정렬된 값. 예: `{caption,ocr,stt}` |
+| `sources` | text[] | 요청한 출처를 정렬한 값. 영상에서 자동 출처 선택을 쓰면 빈 배열 |
 | `version` | text | 판별 버전. 기준 데이터, 판별 프롬프트, 모델 설정, 엔진 코드로 만든 해시 |
 | `status` | text | `pending` → `running` → `done` 또는 `failed` |
 | `progress` | text | 진행 중인 단계(화면 표시용). `log`의 마지막 줄 |
 | `log` | text[] | 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 쌓음. 예: `교리와 관련 있어 보이는 구간 18개를 골랐습니다.` 화면의 'AI 진행 과정'에 그대로 보임. 이 칸이 생기기 전의 분석은 비어 있음 |
+| `log_times` | timestamptz[] | 진행 과정의 기록 시각. 이전 데이터에 시각이 빠져 있으면 배열 끝부터 `log`에 대응 |
 | `error` | text | 실패 이유 |
 | `verdict` | text | `safe` / `caution` / `danger`. 판별이 끝나면 채움 |
 | `score` | integer | 종합 의심 지수 0~100. 적발 중 가장 높은 점수 |
@@ -142,6 +144,7 @@ ORDER BY kind;
 - `(video_id, sources, version)`이 같은 `done` 행이 있으면, 같은 영상을 다시 넣을 때 그 결과를 그대로 돌려줍니다.
 - `sources`는 고른 출처이지 실제로 성공한 출처가 아닙니다. 음성 인식이 실패해도 `stt`가 들어갑니다. 실제로 추출된 출처는 `segments.source`로, 실패 이유는 `transcripts.warnings`로 확인합니다.
 - 서버가 재시작되면 `pending`/`running`이던 행은 `failed`로 바뀝니다.
+- 단계별 실행 시간은 `analyses`의 칼럼과 별도로 백엔드의 `analysis.timing_summary` 로그에 기록됩니다.
 
 ### `findings` — 적발된 발언
 
