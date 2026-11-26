@@ -1,208 +1,118 @@
-# DB 구조
+# 데이터베이스 구조
 
-PostgreSQL 17 + pgvector 하나에 기준 데이터와 분석 결과를 모두 저장합니다. 테이블 정의는 [backend/app/db/schema.sql](../backend/app/db/schema.sql)이 기준입니다. 서버가 뜰 때 이 파일을 실행하므로 테이블을 따로 만들 필요는 없습니다.
+DBMS는 **PostgreSQL**입니다. 로컬은 PostgreSQL 17, 스테이징은 Supabase PostgreSQL을 사용합니다. `pgvector`로 기준 자료와 영상 대주제의 1024차원 임베딩을 저장하고 검색합니다. [스키마 원본](../backend/app/db/schema.sql)
 
-## 접속 정보
+## 테이블 관계
 
-`docker compose up -d db`로 띄운 DB의 기본값입니다(`docker-compose.yml`). `.env`의 `DATABASE_URL`로 바꿀 수 있습니다.
+![영상, 추출 결과, 원문 구간, 분석 결과와 기준 자료를 연결하는 PostgreSQL 테이블 관계도](diagrams/database-relationships.svg)
 
-| 항목 | 값 |
-| --- | --- |
-| 접속 주소 | `postgresql://heresy:heresy@localhost:5432/heresy` |
-| JDBC URL | `jdbc:postgresql://localhost:5432/heresy` |
-| Host | `localhost` |
-| Port | `5432` |
-| Database | `heresy` |
-| 사용자 / 비밀번호 | `heresy` / `heresy` |
-| 스키마 | `public` |
+- 영상 한 편에는 여러 추출 결과와 분석이 연결될 수 있습니다. 텍스트 분석도 `transcripts`와 `segments`를 사용하며 `video_id`는 비어 있습니다.
+- 적발 발언은 분석(`analyses`)과 원문 구간(`segments`)을 참조합니다. `finding_refs`는 적발 발언과 근거 자료(`chunks`)의 다대다 관계를 연결합니다.
 
-### DBeaver로 접속하기
+## 테이블과 컬럼
 
-1. **새 데이터베이스 연결** → **PostgreSQL**을 고릅니다.
-2. 위 표의 Host, Port, Database, 사용자, 비밀번호를 넣습니다. **URL**로 입력할 때는 JDBC URL을 붙여 넣습니다.
-3. 처음이면 드라이버를 내려받으라는 창이 뜹니다. 내려받은 뒤 **연결 테스트**를 누릅니다.
-4. `heresy` → `스키마` → `public` → `테이블`에서 아래 테이블을 봅니다. 테이블을 우클릭해 **ER 다이어그램 보기**를 하면 관계가 그림으로 나옵니다.
+### `videos` · 유튜브 영상
 
-알아 둘 점:
+영상 분석을 처음 요청하면 영상 ID와 주소를 저장합니다. 추출이 끝나면 제목과 재생 시간을 채우며, 저장된 영상 결과와 관련 영상 목록에서 읽습니다.
 
-- DB 컨테이너가 떠 있어야 접속됩니다. Docker Desktop을 켜고 저장소 루트에서 `docker compose up -d db`를 실행합니다.
-- 로컬에 다른 PostgreSQL이 5432번 포트를 쓰고 있으면, 이 DB 대신 그쪽에 접속됩니다. 접속은 됐는데 테이블이 없다면 이 경우입니다.
-- `vector` 칸(임베딩)은 DBeaver가 알지 못하는 형식이라 숫자 1024개가 든 긴 문자열로 보입니다. 열어 볼 필요는 없습니다.
-
-## 관계
-
-```
-videos ──< transcripts ──< segments
-   │            │              ▲
-   │            └──< analyses ─┼──< findings ──< finding_refs >── chunks
-   └───────────────────┘       └───────┘
-```
-
-| 흐름 | 쌓이는 행 |
-| --- | --- |
-| 영상 링크를 처음 넣음 | `videos` 1행(처음 보는 영상만), `analyses` 1행 |
-| 영상에서 텍스트 추출 | `transcripts` 1행, `segments` 구간 수만큼 |
-| 판별 | `analyses`에 등급·점수 채움, 적발마다 `findings` 1행, 적발의 근거마다 `finding_refs` 1행 |
-| 대주제(영상 요약) 정리 | `transcripts`의 `topic_*` 칸 채움(추출 결과마다 한 번). 판별과 동시에 돌아 판별보다 먼저 채워짐 |
-| 추출·판별의 각 단계 | `analyses.log`에 한 줄씩 더하고 `progress`를 그 줄로 바꿈 |
-| 같은 영상을 다른 출처로 / 판별 기준이 바뀐 뒤 다시 넣음 | `analyses`만 새로 생기고 기존 `transcripts`·`segments`를 다시 씀 |
-| 같은 영상·출처·판별 버전으로 다시 넣음 | 새 행 없이 저장된 `analyses`를 돌려줌 |
-| **다시 분석** | `transcripts`·`segments`·`analyses`가 새로 생김 |
-| 텍스트 직접 입력 | `transcripts` 1행(`video_id` 없음), 입력한 줄마다 `segments` 1행, `analyses` 1행 |
-
-추출은 항상 자막·음성·화면 글자를 모두 하고, 화면에서 고른 출처는 판별에만 씁니다. 그래서 추출 결과 하나에 판별이 여러 개 있을 수 있습니다.
-
-## 테이블
-
-### `chunks` — 기준 데이터
-
-판별할 때 검색해서 LLM에 넘기는 정통 교리 조항과 이단 사례입니다. 원본은 `data/`의 YAML이고, `scripts.ingest`가 넣습니다. 같은 id는 갱신하고, YAML에서 빠진 레코드는 지우지 않고 `active`를 끕니다. 지난 적발의 근거가 가리키고 있기 때문입니다.
-
-| 칸 | 형식 | 내용 |
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `id` | text, PK | 기준 데이터 id. 예: `wsc-33`, `scj-144000` |
-| `kind` | text | `orthodox`(정통 교리) 또는 `heresy`(이단 사례) |
-| `text` | text | 임베딩한 문장. 정통 교리는 `[출처 조항] 원문`, 이단 사례는 `[단체] 주장` 과 `키워드: …` 만 담고 반증과 의도는 `metadata`에 둠 |
-| `metadata` | jsonb | 원본 YAML 레코드. 아래 표 참고 |
-| `embedding` | vector(1024) | `text`의 Voyage 임베딩 |
-| `active` | boolean | `false`면 검색에서 빠짐 |
-
-`metadata`의 키:
-
-| kind | 키 |
-| --- | --- |
-| `orthodox` | `source`(출처 문서), `section`(조항), `topic`, `text`(원문), `scripture`, `verified` |
-| `heresy` | `group`(단체), `topic`, `claim`(주장), `keywords`, `intent`(원래 의도), `refutation`(반증), `scripture`, `orthodox_refs`(관련 정통 조항 id), `source`, `verified` |
-
-`verified`는 사람이 원출처와 대조했는지를 나타냅니다. 지금은 모두 `false`입니다. 원본 YAML을 그대로 담는 칸이라 jsonb로 두었습니다.
-
-### `videos` — 분석한 영상
-
-| 칸 | 형식 | 내용 |
-| --- | --- | --- |
-| `video_id` | text, PK | 유튜브 영상 ID. 주소 형태(`youtu.be`, `watch?v=`, `shorts`)가 달라도 같은 값 |
-| `url` | text | 처음 입력한 주소 |
-| `title` | text | 영상 제목. 추출이 끝나면 채움 |
+| `video_id` | text · PK | 유튜브 영상 ID. 주소 형식이 달라도 같은 영상을 같은 ID로 식별 |
+| `url` | text | 처음 입력한 영상 주소 |
+| `title` | text | 영상 제목 |
 | `duration` | integer | 영상 길이(초) |
-| `created_at` | timestamptz | 처음 분석한 시각 |
+| `created_at` | timestamptz | 영상 레코드를 처음 만든 시각 |
 
-### `transcripts` — 추출 1회
+### `transcripts` · 추출 결과
 
-| 칸 | 형식 | 내용 |
+영상의 텍스트 추출이 끝나거나 텍스트 분석을 접수할 때 한 행을 저장합니다. 재분석에서 기존 추출 결과를 찾고, 영상 대주제와 비슷한 영상 목록을 표시할 때 읽습니다.
+
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `id` | uuid, PK | |
-| `video_id` | text, FK → `videos` | 텍스트 직접 입력이면 비어 있음 |
-| `warnings` | text[] | 일부 출처를 추출하지 못한 이유. 예: 음성 인식 API 오류 |
-| `topic_title`, `topic_summary`, `topic_keywords` | text, text, text[] | 영상 대주제. 정리에 실패하면 비어 있고, 다음 분석 때 다시 시도함 |
-| `topic_embedding` | vector(1024) | 대주제 임베딩. 비슷한 주제의 영상을 찾는 데 씀 |
-| `created_at` | timestamptz | 추출한 시각 |
+| `id` | uuid · PK | 추출 결과 ID |
+| `video_id` | text · FK → `videos.video_id` | 영상 ID. 직접 입력한 텍스트면 `NULL` |
+| `warnings` | text[] | 일부 텍스트 추출이 실패한 이유 |
+| `automatic_speech` | boolean | 자동 출처 선택을 사용했는지 여부. 재분석에서 같은 모드의 추출 결과를 선택하는 데 사용 |
+| `topic_title` | text | 영상 대주제 제목 |
+| `topic_summary` | text | 영상 대주제 요약 |
+| `topic_keywords` | text[] | 대주제 키워드 목록 |
+| `topic_embedding` | vector(1024) | 비슷한 영상의 대주제를 검색하는 벡터 |
+| `created_at` | timestamptz | 추출 결과를 저장한 시각 |
 
-### `segments` — 추출 결과의 구간
+### `segments` · 원문 구간
 
-| 칸 | 형식 | 내용 |
+추출하거나 입력한 문장을 구간별로 저장합니다. 판별 엔진이 문맥을 만들 때 읽으며, 화면에서는 원문과 적발 발언의 출처·시각을 표시할 때 읽습니다.
+
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `id` | bigserial, PK | |
-| `transcript_id` | uuid, FK → `transcripts` | |
-| `position` | integer | 추출 결과 안의 순서. 출처별로 시간순 |
+| `id` | bigserial · PK | 구간 ID |
+| `transcript_id` | uuid · FK → `transcripts.id` | 구간이 속한 추출 결과 |
+| `position` | integer | 추출 결과 안의 구간 순서 |
 | `source` | text | `caption`(자막), `stt`(음성), `ocr`(화면 글자), `user`(직접 입력) |
-| `time` | text | `02:15` 형식. 직접 입력한 텍스트는 비어 있음 |
-| `text` | text | 구간의 말 |
+| `time` | text | 영상 시각. 예를 들어 `02:15`. 직접 입력이면 `NULL` |
+| `text` | text | 구간의 원문 |
 
-### `analyses` — 판별 1회
+### `analyses` · 분석 작업과 판별 결과
 
-영상 분석과 텍스트 판별이 함께 씁니다. 화면과 API의 결과 id가 이 테이블의 `id`입니다.
+새 텍스트·영상 분석 작업을 시작할 때 한 행을 만들고 진행 상태와 최종 판별을 갱신합니다. 상태 조회와 결과 화면에서 읽으며, 같은 영상·출처·판별 버전의 완료 결과를 재사용할 때도 조회합니다.
 
-| 칸 | 형식 | 내용 |
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `id` | uuid, PK | `GET /videos/{id}`, `GET /analyses/{id}`의 id |
-| `video_id` | text, FK → `videos` | 텍스트 판별이면 비어 있음. 추출이 끝나기 전에도 같은 영상의 진행 중인 분석을 찾을 수 있게 둠 |
-| `transcript_id` | uuid, FK → `transcripts` | 판별한 추출 결과. 영상 분석은 추출이 끝나야 채워짐 |
-| `sources` | text[] | 판별에 쓴 출처. 정렬된 값. 예: `{caption,ocr,stt}` |
-| `version` | text | 판별 버전. 기준 데이터, 판별 프롬프트, 모델 설정, 엔진 코드로 만든 해시 |
-| `status` | text | `pending` → `running` → `done` 또는 `failed` |
-| `progress` | text | 진행 중인 단계(화면 표시용). `log`의 마지막 줄 |
-| `log` | text[] | 진행 과정. 추출과 판별에서 실제로 한 일을 한 줄씩 쌓음. 예: `교리와 관련 있어 보이는 구간 18개를 골랐습니다.` 화면의 'AI 진행 과정'에 그대로 보임. 이 칸이 생기기 전의 분석은 비어 있음 |
-| `error` | text | 실패 이유 |
-| `verdict` | text | `safe` / `caution` / `danger`. 판별이 끝나면 채움 |
-| `score` | integer | 종합 의심 지수 0~100. 적발 중 가장 높은 점수 |
+| `id` | uuid · PK | 화면과 API에서 쓰는 분석 ID |
+| `video_id` | text · FK → `videos.video_id` | 대상 영상 ID. 텍스트 분석이면 `NULL` |
+| `transcript_id` | uuid · FK → `transcripts.id` | 판별에 쓴 추출 결과. 영상 추출 중에는 `NULL`일 수 있음 |
+| `sources` | text[] | 요청한 출처 목록. 영상에서 자동 출처를 선택하면 빈 배열 |
+| `version` | text | 기준 자료, 프롬프트, 모델 설정과 엔진 리비전을 반영한 판별 버전 |
+| `status` | text | `pending`, `running`, `done`, `failed` |
+| `progress` | text | 현재 진행 단계 |
+| `log` | text[] | 처리 순서대로 쌓이는 진행 메시지 |
+| `log_times` | timestamptz[] | 진행 메시지의 기록 시각. 이전 데이터의 일부 메시지에 시각이 없으면 `log` 끝에서부터 대응 |
+| `error` | text | 작업 실패 이유 |
+| `verdict` | text | `safe`, `caution`, `danger` |
+| `score` | integer | 종합 의심 점수(0~100) |
 | `summary` | text | 판별 요약 |
-| `created_at` | timestamptz | 요청한 시각 |
+| `created_at` | timestamptz | 분석 요청 시각 |
 
-- `(video_id, sources, version)`이 같은 `done` 행이 있으면, 같은 영상을 다시 넣을 때 그 결과를 그대로 돌려줍니다.
-- `sources`는 고른 출처이지 실제로 성공한 출처가 아닙니다. 음성 인식이 실패해도 `stt`가 들어갑니다. 실제로 추출된 출처는 `segments.source`로, 실패 이유는 `transcripts.warnings`로 확인합니다.
-- 서버가 재시작되면 `pending`/`running`이던 행은 `failed`로 바뀝니다.
+### `findings` · 적발 발언
 
-### `findings` — 적발된 발언
+판별이 끝나면 적발 발언마다 한 행을 저장합니다. 결과 화면에서 적발 문장, 점수, 판별 이유와 반증을 표시할 때 읽고, `segments`에서 영상 시각과 출처를 가져옵니다.
 
-| 칸 | 형식 | 내용 |
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `id` | bigserial, PK | 나중에 맞다/틀리다 피드백을 붙일 때 가리킬 id |
-| `analysis_id` | uuid, FK → `analyses` | |
-| `position` | integer | 판별 결과 안의 순서 |
-| `segment_id` | bigint, FK → `segments` | 적발된 구간. 발언 시각과 출처는 이 구간의 값 |
-| `quote` | text | 적발된 발언 원문(구간 안의 일부) |
-| `score` | integer | 이 발언의 의심 점수 30~100 |
-| `group_name` | text | 비슷한 교리를 가르치는 단체. 없으면 비어 있음 |
-| `topic` | text | 교리 분야. 예: `soteriology`(구원론), `christology`(기독론) |
-| `reason` | text | 정통 교리에 어긋나는 이유 |
-| `orthodox_refutation` | text | 정통 교리의 반증 |
-| `heresy_intent` | text | 해당 이단의 원래 의도 |
-| `scripture` | text[] | 관련 성경 구절 |
+| `id` | bigserial · PK | 적발 발언 ID |
+| `analysis_id` | uuid · FK → `analyses.id` | 적발이 속한 분석 |
+| `position` | integer | 분석 결과 안의 적발 표시 순서 |
+| `segment_id` | bigint · FK → `segments.id` | 발언이 나온 원문 구간 |
+| `quote` | text | 적발 발언 인용문 |
+| `score` | integer | 발언별 의심 점수 |
+| `group_name` | text | 관련 사례의 단체명 |
+| `topic` | text | 교리 분류. 예를 들어 `christology` |
+| `reason` | text | 발언이 기준 교리와 어긋난다고 판단한 이유 |
+| `orthodox_refutation` | text | 정통 교리에 따른 반증 |
+| `heresy_intent` | text | 비교 대상 사례의 교리 의도 |
+| `scripture` | text[] | 관련 성경 구절 목록 |
 
-### `finding_refs` — 적발의 근거
+### `finding_refs` · 적발 발언과 근거 연결
 
-| 칸 | 형식 | 내용 |
+적발에 사용한 기준 자료 ID를 저장합니다. 결과 화면은 근거의 표시 순서를 따라 `chunks`를 조회해 제목과 발췌를 구성합니다.
+
+| 컬럼 | 타입 | 저장값 |
 | --- | --- | --- |
-| `finding_id` | bigint, FK → `findings` | |
-| `position` | integer | 근거 순서 |
-| `chunk_id` | text, FK → `chunks` | 근거로 쓴 기준 데이터 |
+| `finding_id` | bigint · PK 일부 · FK → `findings.id` | 근거가 연결된 적발 발언 |
+| `position` | integer · PK 일부 | 적발 한 건에서 근거의 표시 순서 |
+| `chunk_id` | text · FK → `chunks.id` | 근거로 연결된 기준 자료 |
 
-화면에 보이는 근거 문서의 제목과 발췌는 저장하지 않고, 읽을 때 `chunks`에서 만듭니다.
+<a name="supabase-스테이징"></a>
 
-## 자주 쓰는 조회
+### `chunks` · 판별 기준 자료
 
-최근 분석 목록:
+기준 자료 적재 작업이 `data/`의 교리 조항과 사례, 임베딩을 저장합니다. 판별 엔진은 `active = true`인 자료를 종류별로 유사도 순서로 읽으며, 결과 화면은 이 테이블에서 근거 문서를 가져옵니다.
 
-```sql
-select a.created_at, v.title, a.sources, a.status, a.verdict, a.score,
-       (select count(*) from findings f where f.analysis_id = a.id) as findings,
-       t.topic_title
-from analyses a
-left join videos v on v.video_id = a.video_id
-left join transcripts t on t.id = a.transcript_id
-order by a.created_at desc;
-```
-
-적발된 발언과 근거:
-
-```sql
-select v.title, s.time, s.source, f.score, f.group_name, f.quote,
-       string_agg(r.chunk_id, ', ' order by r.position) as refs
-from findings f
-join analyses a on a.id = f.analysis_id
-join segments s on s.id = f.segment_id
-left join videos v on v.video_id = a.video_id
-left join finding_refs r on r.finding_id = f.id
-group by f.id, v.title, s.time, s.source, a.created_at
-order by a.created_at desc, f.position;
-```
-
-어떤 기준 데이터가 근거로 많이 쓰였는지:
-
-```sql
-select c.id, c.kind, c.metadata->>'group' as "group", count(*) as used
-from finding_refs r join chunks c on c.id = r.chunk_id
-group by c.id
-order by used desc;
-```
-
-추출 결과의 출처별 구간 수:
-
-```sql
-select v.title, t.created_at, s.source, count(*)
-from transcripts t
-join segments s on s.transcript_id = t.id
-left join videos v on v.video_id = t.video_id
-group by 1, 2, 3
-order by 2 desc, 3;
-```
+| 컬럼 | 타입 | 저장값 |
+| --- | --- | --- |
+| `id` | text · PK | 원본 기준 자료 ID. 예를 들어 `wsc-33` |
+| `kind` | text | `orthodox`(정통 교리) 또는 `heresy`(이단 사례) |
+| `text` | text | 임베딩에 사용한 교리 원문 또는 사례의 주장과 키워드 |
+| `metadata` | jsonb | 출처, 교리 분류, 관련 성경 구절, 검증 여부 등 원본 자료 정보. 사례에는 의도·반증도 포함 |
+| `embedding` | vector(1024) | Voyage로 만든 텍스트 임베딩 |
+| `active` | boolean | 판별 검색에 포함할지 여부. 원본에서 빠진 자료는 이전 결과의 근거를 보존하며 비활성화 |
