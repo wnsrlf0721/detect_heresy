@@ -2,7 +2,7 @@
 
 유튜브 영상이나 문장을 정통 개신교 교리와 비교해, 어떤 발언이 왜 문제인지 근거와 함께 보여 주는 웹 서비스입니다. "이단이다"라고 판정하는 대신 적발 문장, 정통 교리의 반증, 해당 이단의 원래 의도를 나란히 제시합니다.
 
-기획 배경은 [docs/PROJECT.md](docs/PROJECT.md)에 있습니다.
+[현재 아키텍처와 기획 배경](docs/PROJECT.md) · [Render·Supabase 스테이징](docs/DEPLOYMENT.md) · [DB 구조](docs/DATABASE.md)
 
 > 비교 기준이 되는 교리 자료(`data/`)는 아직 원출처와 대조하지 않은 초안입니다. 결과는 참고용으로만 보세요.
 
@@ -12,16 +12,19 @@
 | --- | --- |
 | `backend/` | FastAPI 서버. 영상에서 텍스트를 추출하고(`app/media`), 기준 데이터와 비교해 판별합니다(`app/rag`). |
 | `frontend/` | Next.js 화면. 영상 링크나 문장을 입력하고 결과를 봅니다. |
+| `extension/` | 유튜브 재생을 감지해 영상 분석을 요청하는 Chrome 확장 프로그램입니다. |
 | `data/` | 기준 데이터 원문(정통 교리, 이단 사례, 평가셋) YAML |
-| `docker-compose.yml` | PostgreSQL + pgvector |
+| `docker-compose.yml` | 로컬 Next.js, FastAPI, PostgreSQL 17과 pgvector를 실행합니다. |
 
-실행하면 세 가지가 뜹니다.
+로컬 Compose 주소는 다음과 같습니다.
 
 | 대상 | 주소 |
 | --- | --- |
 | 화면 | http://localhost:3000 |
 | 백엔드 API | http://localhost:8000 (API 문서는 `/docs`) |
 | DB | localhost:5432 |
+
+스테이징에서는 Render의 Free Web Service 하나에서 Next.js와 FastAPI를 실행합니다. Next.js는 `/api` 요청을 컨테이너 안의 FastAPI로 전달하고 FastAPI는 Supabase PostgreSQL에 연결합니다. 배포 브랜치, 환경 변수, 기준 자료 적재와 검증 순서는 [스테이징 배포 문서](docs/DEPLOYMENT.md)에 있습니다.
 
 ## Docker Compose로 실행
 

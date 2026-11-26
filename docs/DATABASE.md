@@ -1,10 +1,10 @@
 # DB 구조
 
-PostgreSQL 17 + pgvector 하나에 기준 데이터와 분석 결과를 모두 저장합니다. 테이블 정의는 [backend/app/db/schema.sql](../backend/app/db/schema.sql)이 기준입니다. 서버가 뜰 때 이 파일을 실행하므로 테이블을 따로 만들 필요는 없습니다.
+PostgreSQL과 pgvector에 기준 데이터와 분석 결과를 모두 저장합니다. 로컬 Compose는 PostgreSQL 17 이미지를 사용하고, 스테이징은 Supabase PostgreSQL을 사용합니다. FastAPI가 시작할 때 [schema.sql](../backend/app/db/schema.sql)을 실행해 `vector` 확장과 테이블을 초기화합니다. 기준 자료 적재는 `scripts.ingest`를 실행하는 별도 단계입니다.
 
-## 접속 정보
+## 로컬 접속 정보
 
-`docker compose up -d db`로 띄운 DB의 기본값입니다(`docker-compose.yml`). `.env`의 `DATABASE_URL`로 바꿀 수 있습니다.
+`docker compose up -d db`로 띄운 로컬 DB의 기본값입니다. Compose의 백엔드는 Docker 내부 호스트 `db`를 사용합니다. 백엔드를 호스트에서 직접 실행할 때는 `DATABASE_URL`로 접속 주소를 지정할 수 있습니다. [Compose 설정](../docker-compose.yml)
 
 | 항목 | 값 |
 | --- | --- |
@@ -29,14 +29,25 @@ PostgreSQL 17 + pgvector 하나에 기준 데이터와 분석 결과를 모두 �
 - 로컬에 다른 PostgreSQL이 5432번 포트를 쓰고 있으면, 이 DB 대신 그쪽에 접속됩니다. 접속은 됐는데 테이블이 없다면 이 경우입니다.
 - `vector` 칸(임베딩)은 DBeaver가 알지 못하는 형식이라 숫자 1024개가 든 긴 문자열로 보입니다. 열어 볼 필요는 없습니다.
 
+## Supabase 스테이징
+
+Supabase 프로젝트의 **Connect → Session pooler** 연결 문자열을 Render 서비스의 `DATABASE_URL`에 설정합니다. 새 DB를 초기화하거나 `data/`의 교리 자료를 갱신한 뒤에는 해당 DB에 `scripts.ingest`를 실행합니다. 연결 정보와 적재 방법은 [스테이징 배포 문서](DEPLOYMENT.md#기준-자료-적재)에 있습니다.
+
+Supabase SQL Editor에서 다음 조회로 검색에 사용 가능한 기준 자료를 확인할 수 있습니다.
+
+```sql
+SELECT kind, count(*) AS active_chunks
+FROM chunks
+WHERE active
+GROUP BY kind
+ORDER BY kind;
+```
+
 ## 관계
 
-```
-videos ──< transcripts ──< segments
-   │            │              ▲
-   │            └──< analyses ─┼──< findings ──< finding_refs >── chunks
-   └───────────────────┘       └───────┘
-```
+![PostgreSQL 테이블 관계. videos와 transcripts가 analyses에 연결되며, findings는 원본 segments와 분석을, finding_refs는 적발과 기준 자료 chunks를 연결합니다.](diagrams/database-relationships.svg)
+
+텍스트 분석에서는 `videos` 연결이 비어 있습니다. 영상 분석은 추출을 마치기 전까지 `analyses.transcript_id`도 비어 있을 수 있습니다.
 
 | 흐름 | 쌓이는 행 |
 | --- | --- |
@@ -50,7 +61,7 @@ videos ──< transcripts ──< segments
 | **다시 분석** | `transcripts`·`segments`·`analyses`가 새로 생김 |
 | 텍스트 직접 입력 | `transcripts` 1행(`video_id` 없음), 입력한 줄마다 `segments` 1행, `analyses` 1행 |
 
-추출은 항상 자막·음성·화면 글자를 모두 하고, 화면에서 고른 출처는 판별에만 씁니다. 그래서 추출 결과 하나에 판별이 여러 개 있을 수 있습니다.
+추출 결과에는 확보한 자막·음성·화면 글자 구간이 들어갑니다. 자동 출처 선택에서 사용할 수 있는 수동 한국어 자막이 있으면 음성 인식을 건너뜁니다. 판별에 쓸 출처를 바꿔 다시 분석할 수 있어 추출 결과 하나에 판별이 여러 개 연결될 수 있습니다.
 
 ## 테이블
 

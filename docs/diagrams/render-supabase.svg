@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="646" viewBox="0 0 1320 646" role="img" aria-labelledby="title desc">
+<title id="title">Render·Supabase 배포 구조</title>
+<desc id="desc">스테이징에서 웹 요청, DB 연결과 외부 AI 호출이 이동하는 경로</desc>
+<rect x="0" y="0" width="1320" height="646" rx="0" fill="#F5F8FC" stroke="none" stroke-width="1.5"/>
+<rect x="44" y="43" width="6" height="72" rx="3" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="66" y="74" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="35" font-weight="700" text-anchor="start">Render·Supabase 배포 구조</text>
+<text x="67" y="106" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="18" font-weight="400" text-anchor="start">스테이징에서 웹 요청, DB 연결과 외부 AI 호출이 이동하는 경로</text>
+<rect x="387" y="159" width="500" height="417" rx="16" fill="#FFFFFF" stroke="#CFD9E6" stroke-width="1.5"/>
+<text x="411" y="194" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="23" font-weight="700" text-anchor="start">Render Free Web Service</text>
+<text x="412" y="221" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">싱가포르 · Next.js와 FastAPI를 한 Docker 컨테이너에서 실행</text>
+<polyline points="325,212 387,212" fill="none" stroke="#2D62AD" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 6"/>
+<polygon points="387,212 377,216.5 377,207.5" fill="#2D62AD"/>
+<polyline points="325,344 424,344" fill="none" stroke="#2D62AD" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="424,344 414,348.5 414,339.5" fill="#2D62AD"/>
+<polyline points="636,397 636,464" fill="none" stroke="#6542A6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="636,464 631.5,454 640.5,454" fill="#6542A6"/>
+<polyline points="849,496 928,496 928,345 990,345" fill="none" stroke="#08746C" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="990,345 980,349.5 980,340.5" fill="#08746C"/>
+<polyline points="849,527 990,527" fill="none" stroke="#3C6F32" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="990,527 980,531.5 980,522.5" fill="#3C6F32"/>
+<rect x="44" y="162" width="281" height="100" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="58" y="179" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="72" y="198" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">GitHub</text>
+<text x="72" y="223" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">codex/render-supabase-staging</text>
+<text x="72" y="247" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Blueprint와 Dockerfile</text>
+<rect x="44" y="294" width="281" height="100" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="58" y="311" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="72" y="330" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">웹 브라우저</text>
+<text x="72" y="355" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Next.js 화면과 Chrome 확장</text>
+<text x="72" y="379" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">확장 기본 대상은 로컬</text>
+<rect x="424" y="291" width="425" height="106" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="438" y="308" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="452" y="327" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">Next.js</text>
+<text x="452" y="352" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">화면 렌더링과 /api 요청 전달</text>
+<text x="452" y="376" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Render의 공개 HTTP 포트</text>
+<rect x="424" y="464" width="425" height="90" rx="16" fill="#F5F0FF" stroke="#D6C7EF" stroke-width="1.5"/>
+<rect x="438" y="481" width="4" height="24" rx="2" fill="#6542A6" stroke="none" stroke-width="1.5"/>
+<text x="452" y="500" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">FastAPI</text>
+<text x="452" y="525" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">127.0.0.1:8000 · 분석, DB 연결, 상태 조회</text>
+<rect x="990" y="291" width="286" height="108" rx="16" fill="#EBF8F5" stroke="#ADDCD4" stroke-width="1.5"/>
+<rect x="1004" y="308" width="4" height="24" rx="2" fill="#08746C" stroke="none" stroke-width="1.5"/>
+<text x="1018" y="327" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">Supabase PostgreSQL</text>
+<text x="1018" y="352" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Session pooler · TLS</text>
+<text x="1018" y="376" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">pgvector, 기준 자료, 분석 결과</text>
+<rect x="990" y="471" width="286" height="108" rx="16" fill="#F0F8ED" stroke="#C7DFC0" stroke-width="1.5"/>
+<rect x="1004" y="488" width="4" height="24" rx="2" fill="#3C6F32" stroke="none" stroke-width="1.5"/>
+<text x="1018" y="507" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">외부 AI API</text>
+<text x="1018" y="532" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Voyage · Anthropic</text>
+<text x="1018" y="556" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">영상 음성 인식이 필요하면 OpenAI</text>
+<text x="655" y="439" fill="#6542A6" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="start">/api 프록시</text>
+<text x="46" y="610" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">파선은 배포 소스, 실선은 실행 중 요청 경로입니다.</text>
+</svg>

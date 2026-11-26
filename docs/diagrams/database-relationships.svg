@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="711" viewBox="0 0 1320 711" role="img" aria-labelledby="title desc">
+<title id="title">PostgreSQL 테이블 관계</title>
+<desc id="desc">영상·텍스트에서 얻은 구간과 분석 결과, 판별 기준 자료를 관계로 연결합니다.</desc>
+<rect x="0" y="0" width="1320" height="711" rx="0" fill="#F5F8FC" stroke="none" stroke-width="1.5"/>
+<rect x="44" y="43" width="6" height="72" rx="3" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="66" y="74" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="35" font-weight="700" text-anchor="start">PostgreSQL 테이블 관계</text>
+<text x="67" y="106" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="18" font-weight="400" text-anchor="start">영상·텍스트에서 얻은 구간과 분석 결과, 판별 기준 자료를 관계로 연결합니다.</text>
+<text x="45" y="159" fill="#2D62AD" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="18" font-weight="700" text-anchor="start">영상과 추출 구간</text>
+<text x="45" y="433" fill="#08746C" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="18" font-weight="700" text-anchor="start">판별 결과와 기준 자료</text>
+<polyline points="310,250 367,250" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="367,250 357,254.5 357,245.5" fill="#708098"/>
+<polyline points="633,250 690,250" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="690,250 680,254.5 680,245.5" fill="#708098"/>
+<polyline points="139,307 139,326 24,326 24,489 44,489" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="44,489 34,493.5 34,484.5" fill="#708098"/>
+<polyline points="489,307 489,363 231,363 231,455" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="231,455 226.5,445 235.5,445" fill="#708098"/>
+<polyline points="817,307 817,391 501,391 501,455" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="501,455 496.5,445 505.5,445" fill="#708098"/>
+<polyline points="310,522 367,522" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="367,522 357,526.5 357,517.5" fill="#708098"/>
+<polyline points="633,522 690,522" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="690,522 680,526.5 680,517.5" fill="#708098"/>
+<polyline points="1013,522 956,522" fill="none" stroke="#708098" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="956,522 966,517.5 966,526.5" fill="#708098"/>
+<rect x="44" y="191" width="266" height="116" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="58" y="208" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="72" y="227" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">videos</text>
+<text x="72" y="252" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  video_id</text>
+<text x="72" y="276" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">영상 원본 주소</text>
+<rect x="367" y="191" width="266" height="116" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="381" y="208" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="395" y="227" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">transcripts</text>
+<text x="395" y="252" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  id</text>
+<text x="395" y="276" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  video_id · 선택</text>
+<rect x="690" y="191" width="266" height="116" rx="16" fill="#EEF5FF" stroke="#B8CFF0" stroke-width="1.5"/>
+<rect x="704" y="208" width="4" height="24" rx="2" fill="#2D62AD" stroke="none" stroke-width="1.5"/>
+<text x="718" y="227" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">segments</text>
+<text x="718" y="252" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  id</text>
+<text x="718" y="276" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  transcript_id</text>
+<rect x="44" y="455" width="266" height="132" rx="16" fill="#F5F0FF" stroke="#D6C7EF" stroke-width="1.5"/>
+<rect x="58" y="472" width="4" height="24" rx="2" fill="#6542A6" stroke="none" stroke-width="1.5"/>
+<text x="72" y="491" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">analyses</text>
+<text x="72" y="516" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  id</text>
+<text x="72" y="540" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  video_id · 선택</text>
+<text x="72" y="564" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  transcript_id · 선택</text>
+<rect x="367" y="455" width="266" height="132" rx="16" fill="#F5F0FF" stroke="#D6C7EF" stroke-width="1.5"/>
+<rect x="381" y="472" width="4" height="24" rx="2" fill="#6542A6" stroke="none" stroke-width="1.5"/>
+<text x="395" y="491" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">findings</text>
+<text x="395" y="516" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  id</text>
+<text x="395" y="540" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  analysis_id</text>
+<text x="395" y="564" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  segment_id</text>
+<rect x="690" y="455" width="266" height="132" rx="16" fill="#EBF8F5" stroke="#ADDCD4" stroke-width="1.5"/>
+<rect x="704" y="472" width="4" height="24" rx="2" fill="#08746C" stroke="none" stroke-width="1.5"/>
+<text x="718" y="491" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">finding_refs</text>
+<text x="718" y="516" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  finding_id, position</text>
+<text x="718" y="540" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  finding_id</text>
+<text x="718" y="564" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">FK  chunk_id</text>
+<rect x="1013" y="455" width="263" height="132" rx="16" fill="#EBF8F5" stroke="#ADDCD4" stroke-width="1.5"/>
+<rect x="1027" y="472" width="4" height="24" rx="2" fill="#08746C" stroke="none" stroke-width="1.5"/>
+<text x="1041" y="491" fill="#17263B" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="21" font-weight="700" text-anchor="start">chunks</text>
+<text x="1041" y="516" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">PK  id</text>
+<text x="1041" y="540" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">embedding · vector(1024)</text>
+<text x="1041" y="564" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">active · 검색 포함 여부</text>
+<text x="44" y="632" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">화살표는 부모 PK에서 자식 FK로 향하는 1:N 관계입니다. 선택 FK는 비어 있을 수 있습니다.</text>
+<text x="44" y="660" fill="#43556D" font-family="Noto Sans CJK KR, Noto Sans KR, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">텍스트 분석에는 영상 연결이 비어 있습니다. 영상 추출이 끝나면 transcripts를 analyses에 연결합니다.</text>
+</svg>
